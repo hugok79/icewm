@@ -6,7 +6,7 @@
 
 #include "config.h"
 #include "wmframe.h"
-
+#include "wmmgr.h"
 #include "yprefs.h"
 #include "prefs.h"
 #include "atasks.h"
@@ -114,7 +114,7 @@ YFrameWindow::YFrameWindow(
     fWinOptionMask = ~0;
     fOldState = 0;
     fTrayOrder = 0;
-    fClientContainer = nullptr;
+    fContainer = nullptr;
     setTitle("Frame");
     setBackground(inactiveBorderBg);
 }
@@ -172,7 +172,7 @@ YFrameWindow::~YFrameWindow() {
     }
 
     delete fClient; fClient = nullptr;
-    delete fClientContainer; fClientContainer = nullptr;
+    delete fContainer; fContainer = nullptr;
     delete fTitleBar; fTitleBar = nullptr;
 
     manager->unlockWorkArea();
@@ -207,7 +207,7 @@ YFrameTitleBar* YFrameWindow::titlebar() {
 }
 
 void YFrameWindow::doManage(YFrameClient *clientw, bool &doActivate, bool &requestFocus) {
-    PRECONDITION(clientw != 0 && !fClientContainer && !fClient);
+    PRECONDITION(clientw != 0 && !fContainer && !fClient);
 
     if (clientw->handle() == None || clientw->destroyed()) {
         return;
@@ -217,7 +217,7 @@ void YFrameWindow::doManage(YFrameClient *clientw, bool &doActivate, bool &reque
     bool sameDepth = (depth == xapp->depth());
     Visual* visual = (sameDepth ? xapp->visual() : clientw->visual());
     Colormap clmap = (sameDepth ? xapp->colormap() : clientw->colormap());
-    fClientContainer = new YClientContainer(this, this, depth, visual, clmap);
+    fContainer = new YClientContainer(this, this, depth, visual, clmap);
 
     fClient = clientw;
     if (hintOptions && hintOptions->nonempty()) {
@@ -460,6 +460,11 @@ void YFrameWindow::manage() {
 void YFrameWindow::unmanage(bool reparent) {
     PRECONDITION(client());
 
+    if (fMiniIcon) {
+        delete fMiniIcon;
+        fMiniIcon = nullptr;
+    }
+
     if (!client()->destroyed()) {
         int gx, gy;
         client()->gravityOffsets(gx, gy);
@@ -592,21 +597,19 @@ void YFrameWindow::configureClient(const XConfigureRequestEvent &configureReques
     if (hasbit(mask, CWX | CWY | CWWidth | CWHeight)) {
         int cx, cy, cw, ch;
         getNewPos(configureRequest, cx, cy, cw, ch);
-
         configureClient(cx, cy, cw, ch);
     }
 
     if (hasbit(mask, CWStackMode)) {
-        long window = hasbit(mask, CWSibling) ? configureRequest.above : None;
-        long detail = configureRequest.detail;
-        if (inrange<long>(detail, Above, Opposite)) {
-            netRestackWindow(window, detail);
+        Window window = hasbit(mask, CWSibling) ? configureRequest.above : None;
+        if (inrange(configureRequest.detail, Above, Opposite)) {
+            netRestackWindow(window, configureRequest.detail);
         }
     }
     sendConfigure();
 }
 
-void YFrameWindow::netRestackWindow(long window, long detail) {
+void YFrameWindow::netRestackWindow(Window window, int detail) {
     YFrameWindow* sibling = window ? manager->findFrame(window) : nullptr;
     if (sibling) {
         switch (detail) {
@@ -771,7 +774,7 @@ void YFrameWindow::configureClient(int cx, int cy, int cwidth, int cheight) {
     MSG(("setting geometry (%d:%d %dx%d)", cx, cy, cwidth, cheight));
     cy -= titleYN();
     if (isFullscreen()) {
-        XSizeHints *sh = client()->saveHints();
+        XSizeHints *sh = client()->sizeHints();
         if (sh) {
             normalX = cx;
             normalY = cy;
@@ -892,14 +895,13 @@ void YFrameWindow::handleFocus(const XFocusChangeEvent &focus) {
 }
 
 bool YFrameWindow::handleTimer(YTimer *t) {
-    if (isUnmapped() || client()->destroyed())
-        return false;
-    if (t == fAutoRaiseTimer) {
-        if (canRaise())
-            wmRaise();
-    }
-    else if (t == fDelayFocusTimer) {
-        focus(false);
+    if (isMapped() && !client()->destroyed()) {
+        if (t == fAutoRaiseTimer) {
+            actionPerformed(actionRaise);
+        }
+        else if (t == fDelayFocusTimer) {
+            focus(false);
+        }
     }
     return false;
 }
@@ -1035,76 +1037,111 @@ void YFrameWindow::sendConfigure() {
 }
 
 void YFrameWindow::actionPerformed(YAction action, unsigned int modifiers) {
-    if (action == actionRestore) {
+    switch (action.ident()) {
+    case actionRestore:
         if (canRestore())
             wmRestore();
-    } else if (action == actionMinimize) {
+        break;
+    case actionMinimize:
         if (canMinimize())
             wmMinimize();
-    } else if (action == actionMaximize) {
+        break;
+    case actionMaximize:
         if (canMaximize())
             wmMaximize();
-    } else if (action == actionMaximizeVert) {
+        break;
+    case actionMaximizeVert:
         if (canMaximize())
             wmMaximizeVert();
-    } else if (action == actionMaximizeHoriz) {
+        break;
+    case actionMaximizeHoriz:
         if (canMaximize())
             wmMaximizeHorz();
-    } else if (action == actionLower) {
+        break;
+    case actionLower:
         if (canLower())
             wmLower();
-    } else if (action == actionRaise) {
+        break;
+    case actionRaise:
         if (canRaise())
             wmRaise();
-    } else if (action == actionDepth) {
+        break;
+    case actionDepth:
         if (overlaps(bool(Below)) && canRaise()){
             wmRaise();
             manager->setFocus(this, true);
         } else if (overlaps(bool(Above)) && canLower())
             wmLower();
-    } else if (action == actionRollup) {
+        break;
+    case actionRollup:
         if (canRollup())
             wmRollup();
-    } else if (action == actionClose) {
+        break;
+    case actionClose:
         if (canClose())
             wmClose();
-    } else if (action == actionKill) {
+        break;
+    case actionKill:
         wmConfirmKill();
-    } else if (action == actionHide) {
+        break;
+    case actionHide:
         if (canHide())
             wmHide();
-    } else if (action == actionShow) {
+        break;
+    case actionShow:
         if (canShow())
             wmShow();
-    } else if (action == actionMove) {
+        break;
+    case actionMove:
         if (canMove())
             wmMove();
-    } else if (action == actionSize) {
+        break;
+    case actionSize:
         if (canSize())
             wmSize();
-    } else if (action == actionOccupyAllOrCurrent) {
+        break;
+    case actionOccupyAllOrCurrent:
         wmOccupyAllOrCurrent();
+        break;
 #if DO_NOT_COVER_OLD
-    } else if (action == actionDoNotCover) {
+    case actionDoNotCover:
         wmToggleDoNotCover();
+        break;
 #endif
-    } else if (action == actionFullscreen) {
+    case actionFullscreen:
         if (canFullscreen())
             wmToggleFullscreen();
-    } else if (action == actionToggleTray) {
+        break;
+    case actionToggleTray:
         wmToggleTray();
-    } else {
-        for (int l(0); l < WinLayerCount; l++) {
-            if (action == layerActionSet[l]) {
-                bool isFull = isFullscreen() && manager->fullscreenEnabled();
-                if (isFull)
-                    manager->setFullscreenEnabled(false);
-                wmSetLayer(l);
-                if (isFull)
-                    manager->setFullscreenEnabled(true);
-                return ;
-            }
+        break;
+    case actionLayerDesktop:
+    case actionLayerOne:
+    case actionLayerBelow:
+    case actionLayerThree:
+    case actionLayerNormal:
+    case actionLayerFive:
+    case actionLayerOnTop:
+    case actionLayerSeven:
+    case actionLayerDock:
+    case actionLayerNine:
+    case actionLayerAboveDock:
+    case actionLayerEleven:
+    case actionLayerMenu:
+    case actionLayerThirteen:
+    case actionLayerFullscreen:
+    case actionLayerAboveAll:
+        {
+            int layer = (action.ident() - actionLayerDesktop) / 2;
+            bool isFull = isFullscreen() && manager->fullscreenEnabled();
+            if (isFull)
+                manager->setFullscreenEnabled(false);
+            wmSetLayer(layer);
+            if (isFull)
+                manager->setFullscreenEnabled(true);
         }
+        break;
+    default:
         for (int w(0); w < workspaceCount; w++) {
             if (action == workspaceActionMoveTo[w]) {
                 wmMoveToWorkspace(w);
@@ -1372,7 +1409,7 @@ void YFrameWindow::wmConfirmKill() {
         fKillMsgBox = wmConfirmKill(_("Kill Client: ") + getTitle(), this);
 }
 
-YMsgBox* YFrameWindow::wmConfirmKill(const mstring& title,
+YMsgBox* YFrameWindow::wmConfirmKill(const char* title,
         YMsgBoxListener *recvr) {
     YMsgBox *msgbox = new YMsgBox(YMsgBox::mbOK | YMsgBox::mbCancel);
     msgbox->setTitle(title);
@@ -1806,7 +1843,7 @@ void YFrameWindow::updateTitle() {
     if (fTitleBar)
         fTitleBar->repaint();
     updateIconTitle();
-    if (fWinListItem && windowList && windowList->visible())
+    if (fWinListItem && windowList)
         windowList->repaintItem(fWinListItem);
     if (fTaskBarApp)
         fTaskBarApp->setToolTip(getTitle());
@@ -2041,10 +2078,10 @@ WindowOption YFrameWindow::getWindowOption() {
 void YFrameWindow::getWindowOptions(WindowOptions *list, WindowOption &opt,
                                     bool remove)
 {
-    XClassHint const *h(client()->classHint());
-    mstring klass = h ? h->res_class : nullptr;
-    mstring name = h ? h->res_name : nullptr;
-    mstring role = client()->windowRole();
+    const ClassHint* h = client()->classHint();
+    mstring klass(h->res_class);
+    mstring name(h->res_name);
+    mstring role(client()->windowRole());
 
     if (klass != null) {
         if (name != null) {
@@ -2089,35 +2126,32 @@ void YFrameWindow::getDefaultOptions(bool &requestFocus) {
 }
 
 ref<YIcon> newClientIcon(int count, int reclen, long * elem) {
-    ref<YImage> small = null;
-    ref<YImage> large = null;
-    ref<YImage> huge = null;
+    ref<YImage> small;
+    ref<YImage> large;
+    ref<YImage> huge;
 
     if (reclen < 2)
         return null;
     for (int i = 0; i < count; i++, elem += reclen) {
         Pixmap pixmap(elem[0]), mask(elem[1]);
-
         if (pixmap == None) {
             warn("pixmap == None for subicon #%d", i);
             continue;
         }
 
-        Window root;
-        int x, y;
-        unsigned w = 0, h = 0;
-        unsigned border = 0, depth = 0;
+        unsigned w = 0, h = 0, depth = 0;
 
         if (reclen >= 6) {
             w = elem[2];
             h = elem[3];
             depth = elem[4];
-            root = elem[5];
         } else {
-            unsigned w1, h1;
-            if (BadDrawable == XGetGeometry(xapp->display(), pixmap,
-                                            &root, &x, &y, &w1, &h1,
-                                            &border, &depth)) {
+            Window root;
+            int x, y;
+            unsigned w1, h1, border;
+            if (XGetGeometry(xapp->display(), pixmap,
+                             &root, &x, &y, &w1, &h1,
+                             &border, &depth) != True) {
                 warn("BadDrawable for subicon #%d", i);
                 continue;
             }
@@ -2125,48 +2159,71 @@ ref<YIcon> newClientIcon(int count, int reclen, long * elem) {
             h = h1;
         }
 
-        if (w == 0 || h == 0) {
-            MSG(("Invalid pixmap size for subicon #%d: %dx%d", i, w, h));
+        MSG(("client icon: %ld %ux%u %d", pixmap, w, h, depth));
+        if (inrange(w, 1U, 256U) + inrange(h, 1U, 256U) != 2) {
+            MSG(("Invalid pixmap size for subicon #%d: %ux%u", i, w, h));
             continue;
         }
-        MSG(("client icon: %ld %d %d %d %d", pixmap, w, h, depth, xapp->depth()));
+
         if (depth == 1) {
             ref<YPixmap> img = YPixmap::create(w, h, xapp->depth());
             Graphics g(img, 0, 0);
 
-            g.setColorPixel(0xffffff);
+            g.setColorPixel(0xffffffff);
             g.fillRect(0, 0, w, h);
-            g.setColorPixel(0);
+            g.setColorPixel(0xff000000);
             g.setClipMask(pixmap);
             g.fillRect(0, 0, w, h);
 
             ref<YImage> img2 =
-                YImage::createFromPixmapAndMaskScaled(img->pixmap(), mask,
-                                                          img->width(), img->height(),
-                                                          w, h);
+                YImage::createFromPixmapAndMask(img->pixmap(), mask, w, h);
 
-            if (w <= YIcon::smallSize())
+            if (w <= YIcon::smallSize() || h <= YIcon::smallSize())
                 small = img2;
-            else if (w <= YIcon::largeSize())
-                large = img2;
-            else
-                huge = img2;
+            else if (small == null)
+                small = img2->scale(YIcon::smallSize(), YIcon::smallSize());
+            if (YIcon::smallSize() == YIcon::largeSize())
+                large = small;
+            else if (YIcon::smallSize() < w && w <= YIcon::largeSize()) {
+                if (large == null || w > large->width()) {
+                    large = img2;
+                }
+            }
+            else if (YIcon::largeSize() < w && large == null)
+                large = img2->scale(YIcon::largeSize(), YIcon::largeSize());
+            if (YIcon::largeSize() == YIcon::hugeSize())
+                huge = large;
+            else if (YIcon::largeSize() < w && w <= YIcon::hugeSize()) {
+                if (huge == null || w > huge->width()) {
+                    huge = img2;
+                }
+            }
+            else if (huge == null)
+                huge = img2->scale(YIcon::hugeSize(), YIcon::hugeSize());
             img = null;
         }
 
         if (depth == xapp->depth() || depth == 24U) {
-            MSG(("client icon color: %ld %d %d %d %d", pixmap, w, h, depth, xapp->depth()));
             if (w <= YIcon::smallSize()) {
                 small = YImage::createFromPixmapAndMaskScaled(
                     pixmap, mask, w, h, YIcon::smallSize(), YIcon::smallSize());
-            } else if (w <= YIcon::largeSize()) {
+            }
+            else if (w <= YIcon::largeSize()) {
                 large = YImage::createFromPixmapAndMaskScaled(
                     pixmap, mask, w, h, YIcon::largeSize(), YIcon::largeSize());
-            } else if (w <= YIcon::hugeSize() || huge == null || huge->width() < w || huge->height() < h) {
+            }
+            else if (huge == null) {
                 huge = YImage::createFromPixmapAndMaskScaled(
                     pixmap, mask, w, h, YIcon::hugeSize(), YIcon::hugeSize());
             }
         }
+    }
+
+    if (huge != null) {
+        if (small == null)
+            small = huge->scale(YIcon::smallSize(), YIcon::smallSize());
+        if (large == null)
+            large = huge->scale(YIcon::largeSize(), YIcon::largeSize());
     }
 
     ref<YIcon> icon;
@@ -2252,35 +2309,27 @@ void YFrameWindow::updateIcon() {
         XFree(elem);
     }
     else if (client()->getKwmIcon(&count, &pixmap) && count == 2) {
-        XWMHints *h = client()->hints();
-        if (h && (h->flags & IconPixmapHint)) {
-            long pix[4];
-            pix[0] = pixmap[0];
-            pix[1] = pixmap[1];
-            pix[2] = h->icon_pixmap;
-            pix[3] = (h->flags & IconMaskHint) ? h->icon_mask : None;
-            fFrameIcon = newClientIcon(2, 2, pix);
-        } else {
-            long pix[2];
-            pix[0] = pixmap[0];
-            pix[1] = pixmap[1];
-            fFrameIcon = newClientIcon(count / 2, 2, pix);
-        }
+        long pix[4] = {
+            long(pixmap[0]),
+            long(pixmap[1]),
+            long(client()->getIconPixmapHint()),
+            long(client()->getIconMaskHint()),
+        };
         XFree(pixmap);
+        fFrameIcon = newClientIcon(1 + (pix[2] != None), 2, pix);
     }
-    else {
-        XWMHints *h = client()->hints();
-        if (h && (h->flags & IconPixmapHint)) {
-            long pix[2];
-            pix[0] = h->icon_pixmap;
-            pix[1] = (h->flags & IconMaskHint) ? h->icon_mask : None;
-            fFrameIcon = newClientIcon(1, 2, pix);
-        }
-        else if (fFrameIcon == null && client()->classHint()) {
-            const char* name = client()->classHint()->res_name;
-            if (nonempty(name)) {
-                fFrameIcon = YIcon::getIcon(name);
-            }
+    else if (client()->getIconPixmapHint()) {
+        long pix[2] = {
+            long(client()->getIconPixmapHint()),
+            long(client()->getIconMaskHint()),
+        };
+        fFrameIcon = newClientIcon(1, 2, pix);
+    }
+
+    if (fFrameIcon == null) {
+        const char* name = client()->classHint()->res_name;
+        if (nonempty(name)) {
+            fFrameIcon = YIcon::getIcon(name);
         }
     }
 
@@ -2550,21 +2599,26 @@ YFrameWindow *YFrameWindow::mainOwner() {
 
 
 void YFrameWindow::setRequestedLayer(long layer) {
-    if (fWinRequestedLayer != layer && inrange(layer, 0L, WinLayerAboveAll)) {
-        fWinRequestedLayer = layer;
+    if (inrange(layer, 0L, WinLayerAboveAll)) {
+        if (fWinRequestedLayer != layer ||
+            (hasState(WinStateAbove) && layer != WinLayerOnTop) ||
+            (hasState(WinStateBelow) && layer != WinLayerBelow))
+        {
+            fWinRequestedLayer = layer;
 
-        long state = (fWinState & ~(WinStateAbove | WinStateBelow));
-        if (layer == WinLayerOnTop) {
-            state |= WinStateAbove;
-        }
-        if (layer == WinLayerBelow) {
-            state |= WinStateBelow;
-        }
-        if (fWinState != state) {
-            fWinState = state;
-        }
+            long state = (fWinState & ~(WinStateAbove | WinStateBelow));
+            if (layer == WinLayerOnTop) {
+                state |= WinStateAbove;
+            }
+            if (layer == WinLayerBelow) {
+                state |= WinStateBelow;
+            }
+            if (fWinState != state) {
+                fWinState = state;
+            }
 
-        updateLayer();
+            updateLayer();
+        }
     }
 }
 
@@ -3006,24 +3060,6 @@ void YFrameWindow::setState(long mask, long state) {
     fOldState = fWinState;
     long fNewState = (fWinState & ~mask) | (state & mask);
     long deltaState = fOldState ^ fNewState;
-
-    // !!! this should work
-    //if (fNewState == fOldState)
-    //    return ;
-
-    if (deltaState & WinStateFullscreen) {
-        if ((fNewState & WinStateFullscreen)) {
-            // going fullscreen
-            client()->saveSizeHints();
-        }
-        else {
-            // going back
-            client()->restoreSizeHints();
-        }
-    }
-
-    // !!! move here
-
     fWinState = fNewState;
 
     MSG(("setState: oldState: %lX, newState: %lX, mask: %lX, state: %lX",
@@ -3133,6 +3169,10 @@ void YFrameWindow::setAllWorkspaces() {
     }
 }
 
+bool YFrameWindow::visibleNow() const {
+    return visibleOn(manager->activeWorkspace());
+}
+
 #if DO_NOT_COVER_OLD
 void YFrameWindow::setDoNotCover(bool doNotCover) {
     fWinOptionMask &= ~foDoNotCover;
@@ -3146,11 +3186,14 @@ void YFrameWindow::setDoNotCover(bool doNotCover) {
 }
 #endif
 
-void YFrameWindow::updateMwmHints() {
+void YFrameWindow::updateMwmHints(XSizeHints* sh) {
     YDimension old(dimension());
     getFrameHints();
-    updateDerivedSize(None);
-    updateLayout();
+    int nwidth = sh ? normalW * max(1, sh->width_inc) + sh->base_width
+                    : client()->width();
+    int height = sh ? normalH * max(1, sh->height_inc) + sh->base_height
+                    : client()->height();
+    setNormalGeometryInner(normalX, normalY, nwidth, height);
     if (old == dimension()) {
         performLayout();
     }
@@ -3350,12 +3393,8 @@ void YFrameWindow::updateNetWMFullscreenMonitors(int t, int b, int l, int r) {
 }
 
 void YFrameWindow::updateUrgency() {
-    fClientUrgency = false;
-    XWMHints *h = client()->hints();
-    if ( !frameOption(foIgnoreUrgent) &&
-            h && (h->flags & XUrgencyHint))
-        fClientUrgency = true;
-
+    fClientUrgency = !frameOption(foIgnoreUrgent)
+                   && client()->getUrgencyHint();
     if (isUrgent()) {
         if (notState(WinStateUrgent)) {
             setState(WinStateUrgent, WinStateUrgent);

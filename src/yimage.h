@@ -1,5 +1,5 @@
-#ifndef __YIMAGE_H
-#define __YIMAGE_H
+#ifndef YIMAGE_H
+#define YIMAGE_H
 
 #include "ref.h"
 #include "ypaint.h"
@@ -19,6 +19,7 @@ public:
     static ref<YImage> createFromIconProperty(long *pixels,
                                               unsigned width, unsigned height);
     static bool supportsDepth(unsigned depth);
+    static const char* renderName();
 
     unsigned width() const { return fWidth; }
     unsigned height() const { return fHeight; }

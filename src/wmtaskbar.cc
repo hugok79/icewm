@@ -9,6 +9,7 @@
 #include "config.h"
 #include "wmtaskbar.h"
 #include "wmframe.h"
+#include "wmmgr.h"
 #include "wmconfig.h"
 #include "wmprog.h"
 #include "wmwinmenu.h"
@@ -45,7 +46,7 @@ EdgeTrigger::EdgeTrigger(TaskBar *owner):
 {
     setStyle(wsOverrideRedirect | wsInputOnly);
     setPointer(YXApplication::leftPointer);
-    setDND(true);
+    setDND(enabled());
     setTitle("IceEdge");
 }
 
@@ -54,11 +55,8 @@ EdgeTrigger::~EdgeTrigger() {
 
 void EdgeTrigger::startTimer(HideOrShow show) {
     fHideOrShow = show;
-    if (fHideOrShow) {
-        fAutoHideTimer->setTimer(autoShowDelay, this, true);
-    } else {
-        fAutoHideTimer->setTimer(autoHideDelay, this, true);
-    }
+    long delay = max(10, show ? autoShowDelay : autoHideDelay);
+    fAutoHideTimer->setTimer(delay, this, true);
 }
 
 void EdgeTrigger::stopTimer() {
@@ -100,7 +98,7 @@ void EdgeTrigger::handleDNDEnter() {
 }
 
 void EdgeTrigger::handleDNDLeave() {
-    stopTimer();
+    startTimer();
 }
 
 bool EdgeTrigger::handleTimer(YTimer *t) {
@@ -151,8 +149,6 @@ TaskBar::TaskBar(IApp *app, YWindow *aParent, YActionListener *wmActionListener,
     Atom protocols[2] = {
       _XA_WM_DELETE_WINDOW,
       _XA_WM_TAKE_FOCUS
-      //_NET_WM_PING,
-      //_NET_WM_SYNC_REQUEST,
     };
     XSetWMProtocols(xapp->display(), handle(), protocols, 2);
     XWMHints wmhints = { InputHint, False, };
@@ -172,10 +168,6 @@ TaskBar::TaskBar(IApp *app, YWindow *aParent, YActionListener *wmActionListener,
     fEdgeTrigger = new EdgeTrigger(this);
 
     initApplets();
-
-    getPropertiesList();
-    getWMHints();
-    getClassHint();
 
     MSG(("taskbar"));
 }

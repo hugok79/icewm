@@ -131,16 +131,9 @@ void show_backtrace(const int limit = 0);
 #define HASMASK(w,e,n) ((((w) & ~(n)) & (e)) == (e))
 
 int strpcmp(char const *str, char const *pfx, char const *delim = "=:");
-#if 0
-unsigned strtoken(const char *str, const char *delim = " \t");
-#endif
 char const * strnxt(const char *str, const char *delim = " \t");
+const char* errno_string();
 const char *my_basename(const char *filename);
-
-#if 0
-bool strequal(const char *a, const char *b);
-int strnullcmp(const char *a, const char *b);
-#endif
 
 inline const char* boolstr(bool bval) {
     return bval ? "true" : "false";

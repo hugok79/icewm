@@ -4,6 +4,7 @@
 #include "prefs.h"
 #include "yxapp.h"
 #include "wmframe.h"
+#include "wmmgr.h"
 #include "udir.h"
 #include "ypaths.h"
 #include "wpixmaps.h"
@@ -32,7 +33,6 @@ WorkspaceButton::WorkspaceButton(int ws, YWindow *parent, WorkspaceDragger* d):
 {
     addStyle(wsNoExpose);
     setParentRelative();
-    //setDND(true);
     setTitle(name());
 }
 
@@ -631,6 +631,7 @@ void WorkspaceButton::paint(Graphics &g, const YRect& r) {
                 yfw && yfw->getActiveLayer() <= WinLayerDock;
                 yfw = yfw->prevLayer()) {
             if (yfw->isHidden() ||
+                yfw->isSkipPager() ||
                 hasbit(yfw->frameOptions(),
                        YFrameWindow::foIgnoreWinList |
                        YFrameWindow::foIgnorePagerPreview)) {

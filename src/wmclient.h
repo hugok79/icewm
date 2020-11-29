@@ -1,5 +1,5 @@
-#ifndef __YCLIENT_H
-#define __YCLIENT_H
+#ifndef YCLIENT_H
+#define YCLIENT_H
 
 #include "ywindow.h"
 #include "ymenu.h"
@@ -36,15 +36,13 @@ enum WindowType {
 class ClassHint : public XClassHint {
 public:
     ClassHint() { res_name = res_class = nullptr; }
-    ClassHint(const char* name, const char* klas) {
-        res_name = strdup(name);
-        res_class = strdup(klas);
-    }
-    ClassHint(const ClassHint& hint) {
-        res_name = hint.res_name ? strdup(hint.res_name) : nullptr;
-        res_class = hint.res_class ? strdup(hint.res_class) : nullptr;
-    }
+    ClassHint(const char* name, const char* klas) { init(name, klas); }
+    ClassHint(const ClassHint& hint) { init(hint.res_name, hint.res_class); }
     ~ClassHint() { reset(); }
+    void init(const char* name, const char* klas) {
+        res_name = name ? strdup(name) : nullptr;
+        res_class = klas ? strdup(klas) : nullptr;
+    }
     void reset() {
         if (res_name) { XFree(res_name); res_name = nullptr; }
         if (res_class) { XFree(res_class); res_class = nullptr; }
@@ -54,12 +52,7 @@ public:
     void operator=(const ClassHint& hint) {
         if (this != &hint) {
             reset();
-            if (hint.res_name) {
-                res_name = strdup(hint.res_name);
-            }
-            if (hint.res_class) {
-                res_class = strdup(hint.res_class);
-            }
+            init(hint.res_name, hint.res_class);
         }
     }
     bool operator==(const ClassHint& hint) {
@@ -75,6 +68,46 @@ public:
     }
     bool nonempty() {
         return ::nonempty(res_name) || ::nonempty(res_class);
+    }
+};
+
+/*
+ * X11 time state to support _NET_WM_USER_TIME.
+ * Keep track of the time in seconds when we receive a X11 time stamp.
+ * Only compare two X11 time stamps if they are in a time interval.
+ */
+class UserTime {
+private:
+    unsigned long xtime;
+    bool valid;
+    unsigned long since;
+    enum : unsigned long {
+        XTimeMask = 0xFFFFFFFFUL,       // milliseconds
+        XTimeRange = 0x7FFFFFFFUL,      // milliseconds
+        SInterval = 0x3FFFFFFFUL / 1000,     // seconds
+    };
+public:
+    UserTime() : xtime(0), valid(false), since(0) { }
+    explicit UserTime(unsigned long xtime, bool valid = true) :
+        xtime(xtime & XTimeMask), valid(valid), since(seconds()) { }
+    unsigned long time() const { return xtime; }
+    bool good() const { return valid; }
+    long when() const { return since; }
+    bool update(unsigned long xtime, bool valid = true) {
+        UserTime u(xtime, valid);
+        return *this < u || xtime == 0 ? (*this = u, true) : false;
+    }
+    bool operator<(const UserTime& u) const {
+        if (since == 0 || u.since == 0) return u.since != 0;
+        if (valid == false || u.valid == false) return u.valid;
+        if (since < u.since && u.since - since > SInterval) return true;
+        if (since > u.since && since - u.since > SInterval) return false;
+        if (xtime < u.xtime) return u.xtime - xtime <= XTimeRange;
+        if (xtime > u.xtime) return xtime - u.xtime >  XTimeRange;
+        return false;
+    }
+    bool operator==(const UserTime& u) const {
+        return !(*this < u) && !(u < *this);
     }
 };
 
@@ -94,7 +127,7 @@ public:
     virtual bool isMinimized() const = 0;
     virtual bool isFullscreen() const = 0;
     virtual bool isRollup() const = 0;
-    virtual void actionPerformed(YAction action, unsigned int modifiers) = 0;
+    virtual void actionPerformed(YAction action, unsigned int modifiers = 0) = 0;
     virtual bool focused() const = 0;
     virtual bool visibleNow() const = 0;
     virtual bool canClose() const = 0;
@@ -124,13 +157,15 @@ public:
                          YWindow *forWindow = nullptr) = 0;
     virtual void updateSubmenus() = 0;
     virtual Time since() const = 0;
+    virtual ClassHint* classHint() const = 0;
 protected:
     virtual ~ClientData() {}
 };
 
-class YFrameClient: public YWindow
+class YFrameClient: public YDndWindow
                   , public YTimerListener
 {
+    typedef YDndWindow super;
 public:
     YFrameClient(YWindow *parent, YFrameWindow *frame, Window win = 0,
                  int depth = 0, Visual *visual = nullptr, Colormap cmap = 0);
@@ -181,12 +216,14 @@ public:
 
     void getWMHints();
     XWMHints *hints() const { return fHints; }
+    Window getWindowGroupHint();
+    Window getIconWindowHint();
+    Pixmap getIconPixmapHint();
+    Pixmap getIconMaskHint();
+    bool getUrgencyHint();
 
     void getSizeHints();
     XSizeHints *sizeHints() const { return fSizeHints; }
-    XSizeHints *saveHints() const { return fSaveHints; }
-    void saveSizeHints();
-    void restoreSizeHints();
 
     unsigned protocols() const { return fProtocols; }
     void getProtocols(bool force);
@@ -279,7 +316,6 @@ private:
     FrameState fSavedFrameState;
     long fSavedWinState[2];
     XSizeHints *fSizeHints;
-    XSizeHints *fSaveHints;
     ClassHint fClassHint;
     XWMHints *fHints;
     Colormap fColormap;
