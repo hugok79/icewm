@@ -6,10 +6,7 @@
  * ScrollBar
  */
 #include "config.h"
-
-#include "ykey.h"
 #include "yscrollbar.h"
-
 #include "yxapp.h"
 #include "yprefs.h"
 #include "prefs.h"
@@ -22,56 +19,43 @@ static YColorName scrollBarInactiveArrow(&clrScrollBarInactive);
 
 lazy<YTimer> YScrollBar::fScrollTimer;
 
-YScrollBar::YScrollBar(YWindow *aParent): YWindow(aParent) {
-    fOrientation = Vertical;
-    fMinimum = fMaximum = fValue = fVisibleAmount = 0;
-    fUnitIncrement = fBlockIncrement = 1;
-    fListener = nullptr;
-    fScrollTo = goNone;
-    fDNDScroll = false;
-    fConfigured = false;
-    fExposed = false;
-    setTitle("ScrollBar");
-}
-
-
 YScrollBar::YScrollBar(Orientation anOrientation, YWindow *aParent):
-YWindow(aParent)
+    YWindow(aParent),
+    fOrientation(anOrientation),
+    fMaximum(0),
+    fMinimum(0),
+    fValue(0),
+    fVisibleAmount(0),
+    fUnitIncrement(1),
+    fBlockIncrement(1),
+    fScrollTo(goNone),
+    fGrabDelta(0),
+    fListener(nullptr),
+    fDNDScroll(false),
+    fConfigured(false),
+    fExposed(false)
 {
-    fOrientation = anOrientation;
-
-    fMinimum = fMaximum = fValue = fVisibleAmount = 0;
-    fUnitIncrement = fBlockIncrement = 1;
-    fListener = nullptr;
-    fScrollTo = goNone;
-    fDNDScroll = false;
-    fConfigured = false;
-    fExposed = false;
-    setTitle("ScrollBar");
-}
-
-YScrollBar::YScrollBar(Orientation anOrientation,
-                       int aValue, int aVisibleAmount, int aMin, int aMax,
-                       YWindow *aParent): YWindow(aParent)
-{
-    fOrientation = anOrientation;
-    fMinimum = aMin;
-    fMaximum = aMax;
-    fVisibleAmount = aVisibleAmount;
-    fValue = aValue;
-
-    fUnitIncrement = fBlockIncrement = 1;
-    fListener = nullptr;
-    fScrollTo = goNone;
-    fDNDScroll = false;
-    fConfigured = false;
-    fExposed = false;
     setTitle("ScrollBar");
 }
 
 YScrollBar::~YScrollBar() {
     if (fScrollTimer)
         fScrollTimer->disableTimerListener(this);
+}
+
+void YScrollBar::enable() {
+    if (visible() == false) {
+        show();
+        raise();
+    }
+}
+
+void YScrollBar::reverseVideo() {
+    scrollBarBg.reverse();
+    scrollBarSlider.reverse();
+    scrollBarButton.reverse();
+    scrollBarActiveArrow.reverse();
+    scrollBarInactiveArrow.reverse();
 }
 
 void YScrollBar::setOrientation(Orientation anOrientation) {

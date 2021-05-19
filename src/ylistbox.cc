@@ -281,10 +281,14 @@ bool YListBox::handleKey(const XKeyEvent &key) {
             break;
         case XK_Home:
             setFocusedItem(0, clear, extend, false);
+            if (fHorizontalScroll)
+                fHorizontalScroll->move(0);
             break;
         case XK_End:
             if (getItemCount() > 0)
                 setFocusedItem(getItemCount() - 1, clear, extend, false);
+            if (fHorizontalScroll)
+                fHorizontalScroll->move(0);
             break;
         case XK_Up: {
             int const oldFocus(fFocusedItem);
@@ -330,6 +334,14 @@ bool YListBox::handleKey(const XKeyEvent &key) {
                                clear, extend, false);
             break;
         }
+        case XK_Left:
+        case XK_KP_Left:
+        case XK_Right:
+        case XK_KP_Right:
+            if (fHorizontalScroll && fHorizontalScroll->handleScrollKeys(key)) {
+                return true;
+            }
+            break;
         case XK_a:
         case XK_slash:
         case XK_backslash:
@@ -598,7 +610,7 @@ void YListBox::paintItem(int i) {
 
     if (i >= 0 && i < getItemCount() && fVisible) {
         int y = i * getLineHeight() - fOffsetY;
-        YRect r(0, y, width(), getLineHeight());
+        YRect r(0, y, width(), unsigned(getLineHeight()));
         fGraphics.paint(r);
     }
 }
@@ -795,10 +807,6 @@ unsigned YListBox::contentWidth() {
 
 unsigned YListBox::contentHeight() {
     return getItemCount() * getLineHeight();
-}
-
-YWindow *YListBox::getWindow() {
-    return this;
 }
 
 // vim: set sw=4 ts=4 et:

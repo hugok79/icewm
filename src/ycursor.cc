@@ -44,9 +44,10 @@ public:
 
 #elif defined CONFIG_IMLIB2
 
-    bool isValid() { return fImage; }
+    bool isValid() { return fImage && fPixmap; }
     void release();
-    void context() const { imlib_context_set_image(fImage); }
+    void context() const { imlib_context_set_image(fImage);
+                           imlib_context_set_drawable(xapp->root()); }
     unsigned int width() const {
         return fImage ? context(), imlib_image_get_width() : 0;
     }
@@ -110,9 +111,9 @@ YCursorPixmap::YCursorPixmap(upath path): fValid(false) {
     if (rc != XpmSuccess)
         warn(_("Loading of pixmap \"%s\" failed: %s"),
                path.string(), XpmGetErrorString(rc));
-    else if (fAttributes.npixels != 2)
+    /*else if (fAttributes.npixels != 2)
         warn("Invalid cursor pixmap: \"%s\" contains too many unique colors",
-               path.string());
+               path.string());*/
     else {
         fBackground.pixel = fAttributes.pixels[0];
         fForeground.pixel = fAttributes.pixels[1];
@@ -272,7 +273,7 @@ public:
         : paths(YResourcePaths::subdirs("cursors/"))
     { }
 
-    virtual Cursor load(upath path, unsigned int fallback);
+    virtual Cursor load(const char* path, unsigned fallback);
 };
 
 static Pixmap createMask(int w, int h) {
@@ -340,26 +341,16 @@ YCursorLoader* YCursor::newLoader() {
     return new MyCursorLoader();
 }
 
-Cursor MyCursorLoader::load(upath name, unsigned int fallback)
-{
-    Cursor fCursor = None;
-
-    upath cursors("cursors/");
-
-    for (int i = 0; i < paths->getCount(); i++) {
-        upath path = paths->getPath(i) + cursors + name;
+Cursor MyCursorLoader::load(const char* name, unsigned fallback) {
+    for (auto base : *paths) {
+        upath path(base + "/cursors/" + name);
         if (path.fileExists()) {
-            if ((fCursor = load(path)) != None) {
-                /* stop when successful */
-                break;
-            }
+            Cursor c = load(path);
+            if (c)
+                return c;
         }
     }
-
-    if (fCursor == None)
-        fCursor = XCreateFontCursor(xapp->display(), fallback);
-
-    return fCursor;
+    return XCreateFontCursor(xapp->display(), fallback);
 }
 
 // vim: set sw=4 ts=4 et:

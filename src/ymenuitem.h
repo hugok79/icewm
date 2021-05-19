@@ -1,7 +1,6 @@
-#ifndef __YMENUITEM_H
-#define __YMENUITEM_H
+#ifndef YMENUITEM_H
+#define YMENUITEM_H
 
-#include "ypaint.h"
 #include "yicon.h"
 #include "yaction.h"
 
@@ -33,8 +32,6 @@ public:
     int isEnabled() const { return fEnabled; }
     void setEnabled(bool e) { fEnabled = e; }
     void setSubmenu(YMenu *submenu) { fSubmenu = submenu; }
-
-    virtual void actionPerformed(YActionListener *listener, YAction action, unsigned int modifiers);
 
     int queryHeight(int &top, int &bottom, int &pad) const;
 

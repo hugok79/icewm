@@ -65,7 +65,7 @@ public:
     bool getWindowAttributes(XWindowAttributes* attr);
     void beneath(YWindow* superior);
     void raiseTo(YWindow* inferior);
-    void setWindowFocus();
+    void setWindowFocus(Time timestamp = CurrentTime);
 
     bool fetchTitle(char** title);
     void setTitle(char const * title);
@@ -120,7 +120,7 @@ public:
 
     virtual void handleClickDown(const XButtonEvent &, int) {}
     virtual void handleClick(const XButtonEvent &, int) {}
-    virtual void handleBeginDrag(const XButtonEvent &, const XMotionEvent &) {}
+    virtual bool handleBeginDrag(const XButtonEvent &, const XMotionEvent &);
     virtual void handleDrag(const XButtonEvent &, const XMotionEvent &) {}
     virtual void handleEndDrag(const XButtonEvent &, const XButtonEvent &) {}
 
@@ -133,7 +133,7 @@ public:
     void grabKeyM(int key, unsigned modifiers);
     void grabKey(int key, unsigned modifiers);
     void grabVKey(int key, unsigned vmodifiers);
-    unsigned VMod(int modifiers);
+    unsigned VMod(unsigned modifiers);
     void grabButtonM(int button, unsigned modifiers);
     void grabButton(int button, unsigned modifiers);
     void grabVButton(int button, unsigned vmodifiers);
@@ -181,10 +181,12 @@ public:
         wsDesktopAware     = 1 << 6,
         wsToolTip          = 1 << 7,
         wsBackingMapped    = 1 << 8,
+        wsToolTipping      = 1 << 9,
+        wsTakeFocus        = 1 << 10,
     };
 
     virtual bool isFocusTraversable();
-    bool isFocused();
+    bool isFocused() const { return focused(); }
     void nextFocus();
     void prevFocus();
     bool changeFocus(bool next);
@@ -202,6 +204,7 @@ public:
     void installAccelerator(unsigned key, unsigned mod, YWindow *win);
     void removeAccelerator(unsigned key, unsigned mod, YWindow *win);
 
+    mstring getToolTip();
     void setToolTip(const mstring &tip);
 
     void mapToGlobal(int &x, int &y);
@@ -213,6 +216,7 @@ public:
     void deleteProperty(Atom property);
     void setProperty(Atom prop, Atom type, const Atom* values, int count);
     void setProperty(Atom property, Atom propType, Atom value);
+    void setNetName(const char* name);
     void setNetWindowType(Atom window_type);
     void setNetOpacity(Atom opacity);
     void setNetPid();
@@ -242,7 +246,7 @@ public:
 
     bool hasPopup();
 
-    KeySym keyCodeToKeySym(unsigned int keycode, int index = 0);
+    KeySym keyCodeToKeySym(unsigned keycode, unsigned index = 0);
     static unsigned long getLastEnterNotifySerial();
 
     void unmanageWindow() { removeWindow(); }
@@ -362,10 +366,16 @@ extern YDesktop *desktop;
 struct YExtension {
     int eventBase, errorBase;
     int versionMajor, versionMinor;
+    Bool parameter;
     bool supported;
 
     typedef int (*QueryFunc)(Display *, int *, int *);
     void init(Display* dis, QueryFunc ext, QueryFunc ver);
+
+    typedef Bool (*ExistFunc)(Display *);
+    typedef Bool (*ParamFunc)(Display *, int *, int *, Bool *);
+    void init(Display* dis, ExistFunc ext, ParamFunc ver);
+
     bool isEvent(int type, int eventNumber) const {
         return supported && type == eventBase + eventNumber;
     }
@@ -378,6 +388,7 @@ extern YExtension render;
 extern YExtension shapes;
 extern YExtension xrandr;
 extern YExtension xinerama;
+extern YExtension xshm;
 
 extern Atom _XA_WM_CHANGE_STATE;
 extern Atom _XA_WM_CLASS;

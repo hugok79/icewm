@@ -6,13 +6,14 @@
 #include "config.h"
 #define WMAPP
 #include "appnames.h"
+#define GUI_EVENT_NAMES
+#include "guievent.h"
 #include "yfull.h"
 #include "wmprog.h"
 #include "wmwinmenu.h"
 #include "wmapp.h"
 #include "wmframe.h"
 #include "wmmgr.h"
-#include "wmswitch.h"
 #include "wmstatus.h"
 #include "wmabout.h"
 #include "wmdialog.h"
@@ -136,49 +137,13 @@ static Window registerProtocols1(char **argv, int argc) {
 
 static void registerWinProtocols(Window xid) {
     Atom win_proto[] = {
-//      _XA_WIN_APP_STATE,
-        _XA_WIN_AREA,
-        _XA_WIN_AREA_COUNT,
-        _XA_WIN_CLIENT_LIST,
-        _XA_WIN_DESKTOP_BUTTON_PROXY,
-//      _XA_WIN_EXPANDED_SIZE,
-        _XA_WIN_HINTS,
         _XA_WIN_ICONS,
         _XA_WIN_LAYER,
         _XA_WIN_PROTOCOLS,
-        _XA_WIN_STATE,
-        _XA_WIN_SUPPORTING_WM_CHECK,
         _XA_WIN_TRAY,
-        _XA_WIN_WORKAREA,
-        _XA_WIN_WORKSPACE,
-        _XA_WIN_WORKSPACE_COUNT,
-        _XA_WIN_WORKSPACE_NAMES
     };
     int win_count = int ACOUNT(win_proto);
-
-    XChangeProperty(xapp->display(), desktop->handle(),
-                    _XA_WIN_PROTOCOLS, XA_ATOM, 32,
-                    PropModeReplace, (unsigned char *)win_proto, win_count);
-}
-
-static void registerWinProperties(Window xid) {
-    XChangeProperty(xapp->display(), xid,
-                    _XA_WIN_SUPPORTING_WM_CHECK, XA_CARDINAL, 32,
-                    PropModeReplace, (unsigned char *)&xid, 1);
-
-    XChangeProperty(xapp->display(), desktop->handle(),
-                    _XA_WIN_SUPPORTING_WM_CHECK, XA_CARDINAL, 32,
-                    PropModeReplace, (unsigned char *)&xid, 1);
-
-    unsigned long ac[2] = { 1, 1 };
-    unsigned long ca[2] = { 0, 0 };
-
-    XChangeProperty(xapp->display(), desktop->handle(),
-                    _XA_WIN_AREA_COUNT, XA_CARDINAL, 32,
-                    PropModeReplace, (unsigned char *)&ac, 2);
-    XChangeProperty(xapp->display(), desktop->handle(),
-                    _XA_WIN_AREA, XA_CARDINAL, 32,
-                    PropModeReplace, (unsigned char *)&ca, 2);
+    desktop->setProperty(_XA_WIN_PROTOCOLS, XA_ATOM, win_proto, win_count);
 }
 
 static void registerNetProtocols(Window xid) {
@@ -293,9 +258,7 @@ static void registerNetProtocols(Window xid) {
         }
     }
 
-    XChangeProperty(xapp->display(), desktop->handle(),
-                    _XA_NET_SUPPORTED, XA_ATOM, 32,
-                    PropModeReplace, (unsigned char *)net_proto, net_count);
+    desktop->setProperty(_XA_NET_SUPPORTED, XA_ATOM, net_proto, net_count);
 }
 
 static void registerNetProperties(Window xid) {
@@ -316,14 +279,11 @@ static void registerNetProperties(Window xid) {
                     PropModeReplace, (unsigned char *)wmname,
                     strnlen(wmname, sizeof(wmname)));
 
-    XChangeProperty(xapp->display(), desktop->handle(),
-                    _XA_NET_SUPPORTING_WM_CHECK, XA_WINDOW, 32,
-                    PropModeReplace, (unsigned char *)&xid, 1);
+    desktop->setProperty(_XA_NET_SUPPORTING_WM_CHECK, XA_WINDOW, xid);
 }
 
 static void registerProtocols2(Window xid) {
     registerWinProtocols(xid);
-    registerWinProperties(xid);
     registerNetProtocols(xid);
     registerNetProperties(xid);
 }
@@ -384,13 +344,6 @@ CtrlAltDelete* YWMApp::getCtrlAltDelete() {
     return ctrlAltDelete;
 }
 
-SwitchWindow* YWMApp::getSwitchWindow() {
-    if (switchWindow == nullptr && quickSwitch) {
-        switchWindow = new SwitchWindow(desktop, nullptr, quickSwitchVertical);
-    }
-    return switchWindow;
-}
-
 void YWMApp::initPointers() {
     osmart<YCursorLoader> l(YCursor::newLoader());
 
@@ -434,7 +387,7 @@ void LogoutMenu::updatePopup() {
 
             addItem(_("Restart _Icewm"), -2, null, actionRestart, "restart");
 
-            addItem(_("Restart _Xterm"), -2, null, actionRestartXterm, TERM);
+            addItem(_("Restart _Xterm"), -2, null, actionRestartXterm, "xterm");
 
         }
     }
@@ -644,8 +597,12 @@ void YWMApp::runRestart(const char *path, char *const *args) {
 
     xapp->alert();
 
-    die(13, _("Could not restart: %s\nDoes $PATH lead to %s?"),
-         strerror(errno), path ? path : ICEWMEXE);
+    if (manager && desktop && desktop->getEventMask()) {
+        XSelectInput(xapp->display(), desktop->handle(), desktop->getEventMask());
+    } else {
+        die(13, _("Could not restart: %s\nDoes $PATH lead to %s?"),
+             strerror(errno), path ? path : ICEWMEXE);
+    }
 }
 
 void YWMApp::restartClient(const char *cpath, char *const *cargs) {
@@ -802,24 +759,18 @@ void YWMApp::actionPerformed(YAction action, unsigned int /*modifiers*/) {
             restartClient(nullptr, nullptr);
     }
     else if (action == actionRestartXterm) {
-        struct t_executor : public YMsgBoxListener {
-            YSMListener *listener;
-            t_executor(YSMListener* x) : listener(x) {}
-            virtual void handleMsgBox(YMsgBox *msgbox, int operation) {
-                if (msgbox)
-                    manager->unmanageClient(msgbox);
-                if (operation == YMsgBox::mbOK)
-                    listener->restartClient(TERM, nullptr);
-            }
-        };
-        static t_executor delegate(this);
-        YFrameWindow::wmConfirmKill(_("Kill IceWM, replace with Xterm"), &delegate);
+        if (fRestartMsgBox) {
+            fRestartMsgBox->unmanage();
+        }
+        fRestartMsgBox = new YMsgBox(YMsgBox::mbBoth,
+                                     _("Confirm Restart as Terminal"),
+                                     _("Unmanage all applications and restart\n"
+                                      "as a terminal. Proceed?"),
+                                     this, "xterm");
     }
     else if (action == actionRun) {
         runCommand(runDlgCommand);
     } else if (action == actionExit) {
-        manager->unmanageClients();
-        unregisterProtocols();
         exit(0);
     } else if (action == actionFocusClickToFocus) {
         setFocusMode(FocusClick);
@@ -843,11 +794,15 @@ void YWMApp::actionPerformed(YAction action, unsigned int /*modifiers*/) {
         }
     } else if (action == actionAbout) {
         if (aboutDlg == nullptr)
-            aboutDlg = new AboutDlg();
-        else
-            aboutDlg->getFrame()->setWorkspace(manager->activeWorkspace());
+            aboutDlg = new AboutDlg(this);
         if (aboutDlg)
             aboutDlg->showFocused();
+    }
+    else if (action == actionAboutClose) {
+        if (aboutDlg) {
+            manager->unmanageClient(aboutDlg);
+            aboutDlg = nullptr;
+        }
     } else if (action == actionTileVertical ||
                action == actionTileHorizontal)
     {
@@ -1073,15 +1028,21 @@ static void showExtensions() {
         { "shapes",    &shapes    },
         { "xrandr",    &xrandr    },
         { "xinerama",  &xinerama  },
+        { "xshm",      &xshm      },
     };
     printf("[name]   [ver] [ev][err]\n");
     for (auto ext : pairs) {
         const char* s = ext.left;
         YExtension* x = ext.right;
         if (x->versionMajor | x->versionMinor) {
-            printf("%-9s %d.%-2d (%2d, %3d)\n", s,
-                    x->versionMajor, x->versionMinor,
-                    x->eventBase, x->errorBase);
+            printf("%-9s %d.%-2d", s, x->versionMajor, x->versionMinor);
+            if (x->eventBase | x->errorBase) {
+                printf(" (%2d, %3d)", x->eventBase, x->errorBase);
+            }
+            else if (x == &xshm && x->parameter) {
+                printf(" pixmaps");
+            }
+            printf("\n");
         }
         if (!x->supported) {
             printf("%-9s unsupported\n", s);
@@ -1124,9 +1085,9 @@ YWMApp::YWMApp(int *argc, char ***argv, const char *displayName,
     notifyParent(notifyParent),
     notifiedParent(0),
     fLogoutMsgBox(nullptr),
+    fRestartMsgBox(nullptr),
     aboutDlg(nullptr),
     ctrlAltDelete(nullptr),
-    switchWindow(nullptr),
     windowMenu(nullptr),
     errorRequestCode(0),
     errorFrame(nullptr),
@@ -1251,15 +1212,18 @@ YWMApp::YWMApp(int *argc, char ***argv, const char *displayName,
 
 YWMApp::~YWMApp() {
     if (fLogoutMsgBox) {
-        manager->unmanageClient(fLogoutMsgBox);
+        fLogoutMsgBox->unmanage();
         fLogoutMsgBox = nullptr;
+    }
+    if (fRestartMsgBox) {
+        fRestartMsgBox->unmanage();
+        fRestartMsgBox = nullptr;
     }
     if (aboutDlg) {
         manager->unmanageClient(aboutDlg);
         aboutDlg = nullptr;
     }
 
-    delete switchWindow; switchWindow = nullptr;
     delete ctrlAltDelete; ctrlAltDelete = nullptr;
     delete taskBar; taskBar = nullptr;
 
@@ -1292,10 +1256,12 @@ YWMApp::~YWMApp() {
     extern void freeTitleColorsFonts();
     freeTitleColorsFonts();
 
-    //!!!XFreeGC(display(), outlineGC); lazy init in movesize.cc
-    //!!!XFreeGC(display(), clipPixmapGC); in ypaint.cc
+    YConfig::freeConfig(wmapp_preferences);
 
     XFlush(display());
+    unsetenv("DISPLAY");
+    alarm(1);
+    wmapp = nullptr;
 }
 
 int YWMApp::mainLoop() {
@@ -1311,7 +1277,16 @@ int YWMApp::mainLoop() {
         }
     }
 
-    return super::mainLoop();
+    int rc = super::mainLoop();
+    signalGuiEvent(geShutdown);
+    manager->unmanageClients();
+    unregisterProtocols();
+    YIcon::freeIcons();
+    WMConfig::freeConfiguration();
+    defOptions = null;
+    hintOptions = null;
+
+    return rc;
 }
 
 void YWMApp::handleSignal(int sig) {
@@ -1366,33 +1341,7 @@ bool YWMApp::handleIdle() {
 }
 
 void YWMApp::signalGuiEvent(GUIEvent ge) {
-    /*
-     * The first event must be geStartup.
-     * Ignore all other events before that.
-     */
-    static bool started;
-    if (ge == geStartup)
-        started = true;
-    else if (started == false)
-        return;
-
-    /*
-     * Because there is no event buffering,
-     * when multiple events occur in a burst,
-     * only signal the first event of the burst.
-     */
-    timeval now = monotime();
-    static timeval next;
-    if (now < next && ge != geStartup) {
-        return;
-    }
-    next = now + millitime(100L);
-
-    unsigned char num = (unsigned char)ge;
-
-    XChangeProperty(xapp->display(), desktop->handle(),
-                    _XA_ICEWM_GUIEVENT, _XA_ICEWM_GUIEVENT,
-                    8, PropModeReplace, &num, 1);
+    guiSignaler->signal(ge);
 }
 
 bool YWMApp::filterEvent(const XEvent &xev) {
@@ -1454,6 +1403,7 @@ static void print_usage(const char *argv0) {
              "  -t, --theme=FILE    Load theme from FILE.\n"
              "  -s, --splash=IMAGE  Briefly show IMAGE on startup.\n"
              "  -p, --postpreferences  Print preferences after all processing.\n"
+             "  --rewrite-preferences  Update an existing preferences file.\n"
              "  --trace=conf,icon   Trace paths used to load configuration.\n"
              );
 
@@ -1498,9 +1448,9 @@ static void print_usage(const char *argv0) {
 
 static void print_themes_list() {
     themeName = nullptr;
-    ref<YResourcePaths> res(YResourcePaths::subdirs(null, true));
-    for (int i = 0; i < res->getCount(); ++i) {
-        for (sdir dir(res->getPath(i)); dir.next(); ) {
+    ref<YResourcePaths> res(YResourcePaths::subdirs(nullptr, true));
+    for (upath& path : *res) {
+        for (sdir dir(path); dir.next(); ) {
             upath thmp(dir.path() + dir.entry());
             if (thmp.dirExists()) {
                 for (sdir thmdir(thmp); thmdir.nextExt(".theme"); ) {
@@ -1624,6 +1574,7 @@ int main(int argc, char **argv) {
     YLocale locale;
     bool restart_wm(false);
     bool log_events(false);
+    bool rewrite_prefs(false);
     bool notify_parent(false);
     const char* configFile(nullptr);
     const char* displayName(nullptr);
@@ -1638,6 +1589,8 @@ int main(int argc, char **argv) {
                 overrideTheme = value;
             else if (is_switch(*arg, "p", "postpreferences"))
                 post_preferences = true;
+            else if (is_long_switch(*arg, "rewrite-preferences"))
+                rewrite_prefs = true;
             else if (is_long_switch(*arg, "extensions"))
                 show_extensions = true;
             else
@@ -1685,6 +1638,8 @@ int main(int argc, char **argv) {
 
     if (restart_wm)
         return restartWM(displayName, overrideTheme);
+    if (rewrite_prefs)
+        return WMConfig::rewritePrefs(wmapp_preferences, configFile);
 
     if (isEmpty(configFile))
         configFile = "preferences";
@@ -1700,15 +1655,7 @@ int main(int argc, char **argv) {
                 notify_parent, splashFile,
                 configFile, overrideTheme);
 
-    int rc = app.mainLoop();
-    app.signalGuiEvent(geShutdown);
-    manager->unmanageClients();
-    app.unregisterProtocols();
-    YIcon::freeIcons();
-    WMConfig::freeConfiguration();
-    defOptions = null;
-    hintOptions = null;
-    return rc;
+    return app.mainLoop();
 }
 
 void YWMApp::createTaskBar() {
@@ -1727,16 +1674,13 @@ void YWMApp::doLogout(RebootShutdown reboot) {
     if (!confirmLogout)
         logout();
     else {
-        if (fLogoutMsgBox == nullptr) {
-            YMsgBox *msgbox = new YMsgBox(YMsgBox::mbOK|YMsgBox::mbCancel);
-            fLogoutMsgBox = msgbox;
-            msgbox->setTitle(_("Confirm Logout"));
-            msgbox->setText(_("Logout will close all active applications.\nProceed?"));
-            msgbox->autoSize();
-            msgbox->setMsgBoxListener(this);
+        if (fLogoutMsgBox) {
+            fLogoutMsgBox->unmanage();
         }
-        if (fLogoutMsgBox)
-            fLogoutMsgBox->showFocused();
+        fLogoutMsgBox = new YMsgBox(YMsgBox::mbBoth,
+                            _("Confirm Logout"),
+                            _("Logout will close all active applications.\n"
+                              "Proceed?"), this, "logout");
     }
 }
 
@@ -1779,13 +1723,18 @@ void YWMApp::cancelLogout() {
 }
 
 void YWMApp::handleMsgBox(YMsgBox *msgbox, int operation) {
-    if (msgbox == fLogoutMsgBox && fLogoutMsgBox) {
-        if (fLogoutMsgBox) {
-            manager->unmanageClient(fLogoutMsgBox);
-            fLogoutMsgBox = nullptr;
-        }
+    if (msgbox == fLogoutMsgBox) {
+        msgbox->unmanage();
+        fLogoutMsgBox = nullptr;
         if (operation == YMsgBox::mbOK) {
             logout();
+        }
+    }
+    if (msgbox == fRestartMsgBox) {
+        msgbox->unmanage();
+        fRestartMsgBox = nullptr;
+        if (operation == YMsgBox::mbOK) {
+            restartClient(TERM, nullptr);
         }
     }
 }
@@ -1821,6 +1770,7 @@ public:
         XSelectInput(xapp->display(), handle(), VisibilityChangeMask);
         props();
         show();
+        repaint();
         xapp->sync();
     }
     void place() {
@@ -1830,7 +1780,6 @@ public:
         int x = geo.x() + (geo.width() - w) / 2;
         int y = geo.y() + (geo.height() - h) / 2;
         setGeometry(YRect(x, y, w, h));
-        GraphicsBuffer(this).paint();
     }
     void props() {
         setTitle("IceSplash");
@@ -1840,6 +1789,7 @@ public:
         setProperty(_XA_WIN_LAYER, XA_CARDINAL, 15);
     }
     void repaint() {
+        GraphicsBuffer(this).paint();
     }
     void handleExpose(const XExposeEvent&) {
     }
@@ -1869,6 +1819,51 @@ YWindow* YWMApp::splash(const char* splashFile) {
         }
     }
     return window;
+}
+
+GuiSignaler::GuiSignaler() :
+    started(false),
+    next(zerotime())
+{
+}
+
+const char* GuiSignaler::name(GUIEvent e) {
+    return gui_event_names[e];
+}
+
+void GuiSignaler::signal(GUIEvent ge) {
+    /*
+     * The first event must be geStartup.
+     * Ignore all other events before that.
+     */
+    if (started == false) {
+        if (ge == geStartup) {
+            started = true;
+        } else {
+            // tlog("%s: not started for %s", __func__, name(ge));
+            return;
+        }
+    }
+
+    /*
+     * Because there is no event buffering,
+     * when multiple events occur in a burst,
+     * only signal the first event of the burst.
+     */
+    timeval now = monotime();
+    if (now < next && ge != geStartup) {
+        // tlog("%s: ignoring %s", __func__, name(ge));
+        return;
+    }
+
+    // tlog("%s: signaling %s", __func__, name(ge));
+    next = now + millitime(ge == geStartup ? 1000L : 100L);
+
+    unsigned char num = static_cast<unsigned char>(ge);
+
+    XChangeProperty(xapp->display(), desktop->handle(),
+                    _XA_ICEWM_GUIEVENT, _XA_ICEWM_GUIEVENT,
+                    8, PropModeReplace, &num, 1);
 }
 
 // vim: set sw=4 ts=4 et:

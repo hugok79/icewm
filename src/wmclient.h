@@ -37,7 +37,7 @@ class ClassHint : public XClassHint {
 public:
     ClassHint() { res_name = res_class = nullptr; }
     ClassHint(const char* name, const char* klas) { init(name, klas); }
-    ClassHint(const ClassHint& hint) { init(hint.res_name, hint.res_class); }
+    ClassHint(const ClassHint& ch) { init(ch.res_name, ch.res_class); }
     ~ClassHint() { reset(); }
     void init(const char* name, const char* klas) {
         res_name = name ? strdup(name) : nullptr;
@@ -150,7 +150,6 @@ public:
     virtual bool isAllWorkspaces() const = 0;
     virtual bool startMinimized() const = 0;
     virtual void wmOccupyWorkspace(int workspace) = 0;
-    virtual void wmOccupyOnlyWorkspace(int workspace) = 0;
     virtual void popupSystemMenu(YWindow *owner) = 0;
     virtual void popupSystemMenu(YWindow *owner, int x, int y,
                          unsigned int flags,
@@ -158,6 +157,9 @@ public:
     virtual void updateSubmenus() = 0;
     virtual Time since() const = 0;
     virtual ClassHint* classHint() const = 0;
+    virtual bool isUrgent() const = 0;
+    virtual void updateAppStatus() = 0;
+    virtual void removeAppStatus() = 0;
 protected:
     virtual ~ClientData() {}
 };
@@ -185,18 +187,20 @@ public:
     void setFrame(YFrameWindow *newFrame);
     YFrameWindow *getFrame() const { return fFrame; };
 
-    enum {
+    enum WindowProtocols {
         wpDeleteWindow = 1 << 0,
         wpTakeFocus    = 1 << 1,
         wpPing         = 1 << 2,
-    } WindowProtocols;
+    };
 
-    void sendMessage(Atom msg, Time timeStamp);
-    bool sendTakeFocus();
-    bool sendDelete();
-    bool sendPing();
+    bool protocol(WindowProtocols wp) const { return bool(fProtocols & wp); }
+    void sendMessage(Atom msg, Time ts, long p2 = 0L, long p3 = 0L, long p4 = 0L);
+    void sendTakeFocus();
+    void sendDelete();
+    void sendPing();
     void recvPing(const XClientMessageEvent &message);
     bool killPid();
+    bool timedOut() const { return fTimedOut; }
 
     enum {
         csKeepX = 1,
@@ -216,16 +220,24 @@ public:
 
     void getWMHints();
     XWMHints *hints() const { return fHints; }
-    Window getWindowGroupHint();
-    Window getIconWindowHint();
-    Pixmap getIconPixmapHint();
-    Pixmap getIconMaskHint();
-    bool getUrgencyHint();
+    bool wmHint(long flag) const { return fHints && (fHints->flags & flag); }
+    Window windowGroupHint() const;
+    Window iconWindowHint() const;
+    Pixmap iconPixmapHint() const;
+    Pixmap iconMaskHint() const;
+    bool urgencyHint() const { return wmHint(XUrgencyHint); }
+    bool isDockApp() const;
+    bool isDockAppIcon() const;
+    bool isDockAppWindow() const;
+    bool isDocked() const { return fDocked; }
+    void setDocked(bool docked) { fDocked = docked; }
 
     void getSizeHints();
     XSizeHints *sizeHints() const { return fSizeHints; }
+    int sizeHintsFlags() const { return fSizeHints ? int(fSizeHints->flags) : 0; }
+    int winGravity() const { return hasbit(sizeHintsFlags(), PWinGravity)
+                                  ? fSizeHints->win_gravity : NorthWestGravity; }
 
-    unsigned protocols() const { return fProtocols; }
     void getProtocols(bool force);
 
     void getTransient();
@@ -243,20 +255,17 @@ public:
     mstring windowTitle() { return fWindowTitle; }
     mstring iconTitle() { return fIconTitle; }
 
-    void setWinWorkspaceHint(long workspace);
+    void setWorkspaceHint(long workspace);
     bool getWinWorkspaceHint(long *workspace);
 
-    void setWinLayerHint(long layer);
-    bool getWinLayerHint(long *layer);
+    void setLayerHint(long layer);
+    bool getLayerHint(long *layer);
 
     void setWinTrayHint(long tray_opt);
     bool getWinTrayHint(long *tray_opt);
 
-    void setWinStateHint(long mask, long state);
-    bool getWinStateHint(long *mask, long *state);
-
+    void setStateHint();
     void setWinHintsHint(long hints);
-    bool getWinHintsHint(long *hints);
     long winHints() const { return fWinHints; }
 
     bool getWinIcons(Atom* type, long* count, long** elem);
@@ -314,12 +323,14 @@ private:
     int haveButtonGrab;
     unsigned int fBorder;
     FrameState fSavedFrameState;
-    long fSavedWinState[2];
+    long fWinStateHint;
     XSizeHints *fSizeHints;
     ClassHint fClassHint;
     XWMHints *fHints;
     Colormap fColormap;
+    bool fDocked;
     bool fShaped;
+    bool fTimedOut;
     bool fPinging;
     long fPingTime;
     lazy<YTimer> fPingTimer;
@@ -367,9 +378,7 @@ private:
         bool net_wm_window_opacity : 1;
         bool net_wm_pid : 1;
         bool mwm_hints : 1;
-        bool win_hints : 1;
-        bool win_workspace : 1; // no property notify
-        bool win_state : 1; // no property notify
+        bool win_tray : 1; // no property notify
         bool win_layer : 1; // no property notify
         bool win_icons : 1;
         bool xembed_info : 1;

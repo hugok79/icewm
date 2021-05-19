@@ -292,11 +292,12 @@
 #define WinStateWasMinimized   (1 << 30)  /* was minimized when parent was minimized/hidden */
 #define WinStateUnmapped       (WinStateMinimized|WinStateHidden|WinStateRollup)
 
-#define WIN_STATE_ALL (WinStateSticky | WinStateMinimized |\
-                       WinStateMaximizedVert | WinStateMaximizedHoriz |\
-                       WinStateHidden | WinStateRollup | WinStateHidWorkspace |\
-                       WinStateHidTransient | WinStateFixedPosition |\
-                       WinStateArrangeIgnore | WinStateFullscreen)
+#define WIN_STATE_ALL (WinStateSticky | WinStateUnmapped |\
+                       WinStateMaximizedBoth | WinStateFullscreen)
+/* Win state flags which are also in _NET_WM_STATE: */
+#define WIN_STATE_NET (WIN_STATE_ALL | WinStateModal | WinStateUrgent |\
+                       WinStateSkipPager | WinStateSkipTaskBar |\
+                       WinStateBelow | WinStateAbove | WinStateFocused)
 
 
 /* hints */

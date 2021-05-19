@@ -8,7 +8,6 @@
 class YWindowManager;
 class AboutDlg;
 class CtrlAltDelete;
-class SwitchWindow;
 
 enum FocusModel {
     FocusCustom,
@@ -99,8 +98,6 @@ public:
 
     bool hasCtrlAltDelete() const { return ctrlAltDelete != nullptr; }
     CtrlAltDelete* getCtrlAltDelete();
-    bool hasSwitchWindow() const { return switchWindow != nullptr; }
-    SwitchWindow* getSwitchWindow();
     const char* getConfigFile() const { return configFile; }
     FocusModel getFocusMode() const { return focusMode; }
     YMenu* getWindowMenu();
@@ -117,16 +114,17 @@ private:
     // XXX: these pointers are PITA because they can become wild when objects
     // are destroyed independently by manager. What we need is something like std::weak_ptr...
     YMsgBox *fLogoutMsgBox;
+    YMsgBox* fRestartMsgBox;
     AboutDlg* aboutDlg;
 
     CtrlAltDelete* ctrlAltDelete;
-    SwitchWindow* switchWindow;
     YMenu* windowMenu;
     int errorRequestCode;
     YFrameWindow* errorFrame;
     lazy<YTimer> errorTimer;
     lazy<YTimer> splashTimer;
     lazy<YWindow> splashWindow;
+    lazy<GuiSignaler> guiSignaler;
 
     void createTaskBar();
     YWindow* splash(const char* splashFile);

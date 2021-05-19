@@ -51,7 +51,7 @@ public:
     virtual bool handleKey(const XKeyEvent &key);
     virtual void handleButton(const XButtonEvent &button);
     virtual void handleClick(const XButtonEvent &up, int count);
-    virtual void handleBeginDrag(const XButtonEvent &down, const XMotionEvent &motion);
+    virtual bool handleBeginDrag(const XButtonEvent &down, const XMotionEvent &motion);
     virtual void handleMotion(const XMotionEvent &motion);
     virtual void handleCrossing(const XCrossingEvent &crossing);
     virtual void handleFocus(const XFocusChangeEvent &focus);
@@ -77,8 +77,7 @@ public:
     void wmRaise();
     void doRaise();
     void wmClose();
-    void wmConfirmKill();
-    static YMsgBox* wmConfirmKill(const char* title, YMsgBoxListener *recvr);
+    void wmConfirmKill(const char* message = nullptr);
     void wmKill();
     void wmNextWindow();
     void wmPrevWindow();
@@ -87,8 +86,6 @@ public:
     void wmOccupyAll();
     void wmOccupyAllOrCurrent();
     void wmOccupyWorkspace(int workspace);
-    void wmOccupyOnlyWorkspace(int workspace);
-    void wmMoveToWorkspace(int workspace);
     void wmSetLayer(long layer);
     void wmSetTrayOption(long option);
     void wmToggleTray();
@@ -172,7 +169,6 @@ public:
         fwfWorkspace  = 1 << 5, // current workspace only
         fwfSame       = 1 << 6, // return same if no match and same matches
         fwfLayers     = 1 << 7, // find windows in other layers
-        fwfSwitchable = 1 << 8, // window can be Alt+Tabbed
         fwfMinimized  = 1 << 9, // minimized/visible windows
         fwfUnminimized = 1 << 10, // normal/rolledup only
         fwfHidden     = 1 << 11, // hidden
@@ -249,7 +245,6 @@ public:
         foNoFocusOnAppRaise        = (1 << 18),
         foNoFocusOnMap             = (1 << 19),
         foNoIgnoreTaskBar          = (1 << 20),
-        foNonICCCMConfigureRequest = (1 << 21),
         foClose                    = (1 << 22),
     };
 
@@ -269,8 +264,8 @@ public:
     long getState() const { return fWinState; }
     void setState(long mask, long state);
     bool hasState(long bit) const { return hasbit(fWinState, bit); }
+    bool hasStates(long bits) const { return hasbits(fWinState, bits); }
     bool notState(long bit) const { return !hasbit(fWinState, bit); }
-    long oldState() const { return fOldState; }
 
     bool isFullscreen() const { return hasState(WinStateFullscreen); }
     bool isResizable() const { return hasbit(frameFunctions(), ffResize); }
@@ -336,6 +331,7 @@ public:
     void updateProperties();
     void updateTaskBar();
     void updateAppStatus();
+    void removeAppStatus();
 
     void setWindowType(WindowType winType) { fWindowType = winType; }
     bool isTypeDock() { return (fWindowType == wtDock); }
@@ -352,14 +348,14 @@ public:
     bool isMaximized() const { return hasState(WinStateMaximizedBoth); }
     bool isMaximizedVert() const { return hasState(WinStateMaximizedVert); }
     bool isMaximizedHoriz() const { return hasState(WinStateMaximizedHoriz); }
-    bool isMaximizedFully() const { return isMaximizedVert() && isMaximizedHoriz(); }
+    bool isMaximizedFully() const { return hasStates(WinStateMaximizedBoth); }
     bool isMinimized() const { return hasState(WinStateMinimized); }
     bool isHidden() const { return hasState(WinStateHidden); }
     bool isSkipPager() const { return hasState(WinStateSkipPager); }
     bool isSkipTaskBar() const { return hasState(WinStateSkipTaskBar); }
     bool isRollup() const { return hasState(WinStateRollup); }
     bool isSticky() const { return hasState(WinStateSticky); }
-    bool isAllWorkspaces() const { return (getWorkspace() == AllWorkspaces); }
+    bool isAllWorkspaces() const { return fWinWorkspace == AllWorkspaces; }
     bool wasMinimized() const { return hasState(WinStateWasMinimized); }
     bool wasHidden() const { return hasState(WinStateWasHidden); }
 
@@ -374,7 +370,7 @@ public:
     void setAllWorkspaces();
 
     bool visibleOn(int workspace) const {
-        return (isAllWorkspaces() || getWorkspace() == workspace);
+        return fWinWorkspace == workspace || fWinWorkspace == AllWorkspaces;
     }
     bool visibleNow() const;
 
@@ -401,7 +397,7 @@ public:
     void updateNetWMUserTime();
     void updateNetWMUserTimeWindow();
     void updateNetWMWindowOpacity();
-    void updateNetWMFullscreenMonitors(int, int, int, int);
+    void updateNetWMFullscreenMonitors(int top, int bottom, int left, int right);
 
     int strutLeft() { return fStrutLeft; }
     int strutRight() { return fStrutRight; }
@@ -409,9 +405,8 @@ public:
     int strutBottom() { return fStrutBottom; }
     bool haveStruts() const { return fHaveStruts; }
 
-    void updateUrgency();
     void setWmUrgency(bool wmUrgency);
-    bool isUrgent() { return fWmUrgency || fClientUrgency; }
+    bool isUrgent() const;
 
     int getScreen() const;
     void refresh();
@@ -481,8 +476,6 @@ private:
     long fWinTrayOption;
     long fWinState;
     long fWinOptionMask;
-    long fOldLayer;
-    long fOldState;
     int fTrayOrder;
 
     int fFullscreenMonitorsTop;
@@ -512,8 +505,6 @@ private:
     mstring fShapeTitle;
 
     bool fHaveStruts;
-    bool fWmUrgency;
-    bool fClientUrgency;
     bool indicatorsCreated;
 
     enum WindowType fWindowType;

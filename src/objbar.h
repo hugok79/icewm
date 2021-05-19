@@ -1,9 +1,5 @@
-#ifndef __OBJBAR_H
-#define __OBJBAR_H
-
-#include "ywindow.h"
-#include "ybutton.h"
-#include "obj.h"
+#ifndef OBJBAR_H
+#define OBJBAR_H
 
 class ObjectButton;
 
@@ -28,6 +24,7 @@ public:
 
     void addButton(mstring name, ref<YIcon> icon, ObjectButton *button);
     void refresh();
+    bool nonempty() const { return objects.nonempty(); }
 
 private:
     ArrayType objects;

@@ -14,7 +14,16 @@ public:
         PRECONDITION(ww < INT_MAX);
         PRECONDITION(hh < INT_MAX);
     }
+    YRect(int x, int y, int w, int h)
+        :xx(x), yy(y), ww(unsigned(w)), hh(unsigned(h))
+    {
+        PRECONDITION(ww < INT_MAX);
+        PRECONDITION(hh < INT_MAX);
+    }
     YRect(const XRectangle& r) : xx(r.x), yy(r.y), ww(r.width), hh(r.height) { }
+    operator XRectangle() const {
+        return { short(xx), short(yy), (unsigned short)ww, (unsigned short)hh };
+    }
 
     int x() const { return xx; }
     int y() const { return yy; }
@@ -51,12 +60,22 @@ public:
     bool contains(const YRect& r) const {
         return overlap(r) == r.pixels();
     }
+    bool contains(int x, int y) const {
+        return x >= xx && unsigned(x - xx) < ww
+            && y >= yy && unsigned(y - yy) < hh;
+    }
 
     bool operator==(YRect const& r) const {
         return xx == r.xx && yy == r.yy && ww == r.ww && hh == r.hh;
     }
     bool operator!=(YRect const& r) const {
         return !(*this == r);
+    }
+
+    void operator+=(const YRect& r) {
+        int mx = min(xx, r.xx), mw = int(max(xx + int(ww), r.xx + int(r.ww)));
+        int my = min(yy, r.yy), mh = int(max(yy + int(hh), r.yy + int(r.hh)));
+        setRect(mx, my, unsigned(mw - mx), unsigned(mh - my));
     }
 
     int xx, yy;

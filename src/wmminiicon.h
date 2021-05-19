@@ -17,7 +17,7 @@ public:
     virtual void handleClick(const XButtonEvent &up, int count);
     virtual void handleCrossing(const XCrossingEvent &crossing);
     virtual void handleDrag(const XButtonEvent &down, const XMotionEvent &motion);
-    virtual void handleBeginDrag(const XButtonEvent& d, const XMotionEvent& m);
+    virtual bool handleBeginDrag(const XButtonEvent& d, const XMotionEvent& m);
     virtual void handleEndDrag(const XButtonEvent& d, const XButtonEvent& u);
     virtual void handleExpose(const XExposeEvent& expose);
     virtual void paint(Graphics &g, const YRect &r);
@@ -27,6 +27,7 @@ public:
     void updateIcon();
     void updatePosition();
     YFrameWindow *getFrame() const { return fFrame; };
+    Window iconWindow();
 
 private:
     YFrameWindow *fFrame;

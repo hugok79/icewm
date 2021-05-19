@@ -14,6 +14,7 @@
 #include <X11/extensions/Xinerama.h>
 #endif
 #include <X11/extensions/Xcomposite.h>
+#include <X11/extensions/XShm.h>
 
 YXApplication *xapp = nullptr;
 
@@ -68,23 +69,10 @@ Atom _XA_XEMBED;
 Atom _XA_XEMBED_INFO;
 Atom _XA_UTF8_STRING;
 
-Atom _XA_WIN_APP_STATE;
-Atom _XA_WIN_AREA_COUNT;
-Atom _XA_WIN_AREA;
-Atom _XA_WIN_CLIENT_LIST;
-Atom _XA_WIN_DESKTOP_BUTTON_PROXY;
-Atom _XA_WIN_EXPANDED_SIZE;
-Atom _XA_WIN_HINTS;
 Atom _XA_WIN_ICONS;
 Atom _XA_WIN_LAYER;
 Atom _XA_WIN_PROTOCOLS;
-Atom _XA_WIN_STATE;
-Atom _XA_WIN_SUPPORTING_WM_CHECK;
 Atom _XA_WIN_TRAY;
-Atom _XA_WIN_WORKAREA;
-Atom _XA_WIN_WORKSPACE_COUNT;
-Atom _XA_WIN_WORKSPACE_NAMES;
-Atom _XA_WIN_WORKSPACE;
 
 Atom _XA_NET_ACTIVE_WINDOW;
 Atom _XA_NET_CLIENT_LIST;
@@ -209,6 +197,7 @@ YExtension render;
 YExtension shapes;
 YExtension xrandr;
 YExtension xinerama;
+YExtension xshm;
 
 #ifdef DEBUG
 int xeventcount = 0;
@@ -335,23 +324,10 @@ YAtomName YXApplication::atom_info[] = {
     { &_XA_KDE_SPLASH_PROGRESS              , "_KDE_SPLASH_PROGRESS" },
     { &_XA_KDE_WM_CHANGE_STATE              , "_KDE_WM_CHANGE_STATE" },
 
-    { &_XA_WIN_APP_STATE                    , XA_WIN_APP_STATE },
-    { &_XA_WIN_AREA_COUNT                   , XA_WIN_AREA_COUNT },
-    { &_XA_WIN_AREA                         , XA_WIN_AREA },
-    { &_XA_WIN_CLIENT_LIST                  , XA_WIN_CLIENT_LIST },
-    { &_XA_WIN_DESKTOP_BUTTON_PROXY         , XA_WIN_DESKTOP_BUTTON_PROXY },
-    { &_XA_WIN_EXPANDED_SIZE                , XA_WIN_EXPANDED_SIZE },
-    { &_XA_WIN_HINTS                        , XA_WIN_HINTS },
     { &_XA_WIN_ICONS                        , XA_WIN_ICONS },
     { &_XA_WIN_LAYER                        , XA_WIN_LAYER },
     { &_XA_WIN_PROTOCOLS                    , XA_WIN_PROTOCOLS },
-    { &_XA_WIN_STATE                        , XA_WIN_STATE },
-    { &_XA_WIN_SUPPORTING_WM_CHECK          , XA_WIN_SUPPORTING_WM_CHECK },
     { &_XA_WIN_TRAY                         , XA_WIN_TRAY },
-    { &_XA_WIN_WORKAREA                     , XA_WIN_WORKAREA },
-    { &_XA_WIN_WORKSPACE_COUNT              , XA_WIN_WORKSPACE_COUNT },
-    { &_XA_WIN_WORKSPACE_NAMES              , XA_WIN_WORKSPACE_NAMES },
-    { &_XA_WIN_WORKSPACE                    , XA_WIN_WORKSPACE },
 
     { &_XA_NET_ACTIVE_WINDOW                , "_NET_ACTIVE_WINDOW" },
     { &_XA_NET_CLIENT_LIST                  , "_NET_CLIENT_LIST" },
@@ -555,8 +531,8 @@ void YXApplication::initModifiers() {
     if (MetaMask == AltMask)
         MetaMask = 0;
 
-    MSG(("alt:%d meta:%d super:%d hyper:%d mode:%d num:%d scroll:%d",
-         AltMask, MetaMask, SuperMask, HyperMask, ModeSwitchMask,
+    MSG(("alt:%d meta:%d super:%d hyper:%d win:%d mode:%d num:%d scroll:%d",
+         AltMask, MetaMask, SuperMask, HyperMask, WinMask, ModeSwitchMask,
          NumLockMask, ScrollLockMask));
 
     // some hacks for "broken" modifier configurations
@@ -1048,8 +1024,10 @@ YXApplication::parseArgs(int argc, char **argv, const char *displayName) {
 Display* YXApplication::openDisplay(const char* displayName) {
     if (nonempty(displayName))
         setenv("DISPLAY", displayName, True);
+    else
+        displayName = getenv("DISPLAY");
 
-    Display* display = XOpenDisplay(nullptr);
+    Display* display = XOpenDisplay(displayName);
     if (display == nullptr)
         die(1, _("Can't open display: %s. X must be running and $DISPLAY set."),
             displayName ? displayName : _("<none>"));
@@ -1108,6 +1086,13 @@ YXApplication::YXApplication(int *argc, char ***argv, const char *displayName):
 void YExtension::init(Display* dis, QueryFunc ext, QueryFunc ver) {
     supported = (*ext)(dis, &eventBase, &errorBase)
              && (*ver)(dis, &versionMajor, &versionMinor);
+    parameter = False;
+}
+
+void YExtension::init(Display* dis, ExistFunc ext, ParamFunc ver) {
+    supported = (*ext)(dis)
+             && (*ver)(dis, &versionMajor, &versionMinor, &parameter);
+    eventBase = errorBase = 0;
 }
 
 void YXApplication::initExtensions(Display* dpy) {
@@ -1130,6 +1115,8 @@ void YXApplication::initExtensions(Display* dpy) {
     xinerama.init(dpy, XineramaQueryExtension, XineramaQueryVersion);
     xinerama.supported = (xinerama.supported && XineramaIsActive(dpy));
 #endif
+
+    xshm.init(dpy, XShmQueryExtension, XShmQueryVersion);
 }
 
 YXApplication::~YXApplication() {
@@ -1375,6 +1362,18 @@ const YProperty& YProperty::update() {
         discard();
     }
     return *this;
+}
+
+void YProperty::append(void const* data, int count) const {
+    unsigned char const* bytes = reinterpret_cast<unsigned char const*>(data);
+    XChangeProperty(xapp->display(), fWind, fProp, fKind, fBits,
+                    PropModeAppend, bytes, count);
+}
+
+void YProperty::replace(void const* data, int count) const {
+    unsigned char const* bytes = reinterpret_cast<unsigned char const*>(data);
+    XChangeProperty(xapp->display(), fWind, fProp, fKind, fBits,
+                    PropModeReplace, bytes, count);
 }
 
 // vim: set sw=4 ts=4 et:

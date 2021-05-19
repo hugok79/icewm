@@ -144,7 +144,7 @@ TaskBar::TaskBar(IApp *app, YWindow *aParent, YActionListener *wmActionListener,
                     WinHintsSkipWindowMenu |
                     WinHintsSkipTaskBar);
 
-    setWinWorkspaceHint(AllWorkspaces);
+    setWorkspaceHint(AllWorkspaces);
     updateWinLayer();
     Atom protocols[2] = {
       _XA_WM_DELETE_WINDOW,
@@ -341,7 +341,11 @@ void TaskBar::initApplets() {
             MenuLoader(app, smActionListener, wmActionListener)
             .loadMenus(t, fObjectBar);
         }
-        fObjectBar->setTitle("IceToolbar");
+        if (fObjectBar->nonempty()) {
+            fObjectBar->setTitle("IceToolbar");
+        } else {
+            delete fObjectBar; fObjectBar = nullptr;
+        }
     }
     if (taskBarShowWindowListMenu) {
         class LazyWindowListMenu : public LazyMenu {
@@ -398,8 +402,10 @@ void TaskBar::initApplets() {
                                   this, trayDrawBevel);
         fDesktopTray->setTitle("SystemTray");
         fDesktopTray->relayout();
-    } else
+    } else {
         fDesktopTray = nullptr;
+        updateLocation();
+    }
 
     if (fCollapseButton) {
         fCollapseButton->raise();
@@ -437,8 +443,10 @@ void TaskBar::updateLayout(unsigned &size_w, unsigned &size_h) {
     bool issue314 = taskBarAtTop;
     nw = LayoutInfo( fApplications, Here, issue314, Show, Grow, 0, 0 );
     wlist.append(nw);
-    nw = LayoutInfo( fShowDesktop, Here, !issue314, Show, Grow, 0, 0 );
-    wlist.append(nw);
+    if (taskBarShowShowDesktopButton == 1) {
+        nw = LayoutInfo( fShowDesktop, Here, !issue314, Show, Grow, 0, 0 );
+        wlist.append(nw);
+    }
     nw = LayoutInfo( fWinList, Here, !issue314, Show, Grow, 0, 0 );
     wlist.append(nw);
     nw = LayoutInfo( fObjectBar, Here, Top, Show, Grow, 4, 0 );
@@ -451,8 +459,14 @@ void TaskBar::updateLayout(unsigned &size_w, unsigned &size_h) {
                      Grow, 4, 4 );
     wlist.append(nw);
 
+    if (taskBarShowShowDesktopButton == 2) {
+        nw = LayoutInfo( fShowDesktop, Over, Top, Show, Keep, 1, 1);
+        wlist.append(nw);
+    }
+
     nw = LayoutInfo( fClock, Over, Top, Same, Keep, 2, 2 );
     wlist.append(nw);
+
     if (taskBarShowMailboxStatus) {
         for (auto m = fMailBoxControl->iterator(); ++m; ) {
             nw = LayoutInfo( *m, Over, Top, Show, Keep, 1, 1 );
@@ -575,9 +589,10 @@ void TaskBar::updateLayout(unsigned &size_w, unsigned &size_h) {
 
     if (taskBarShowWindows) {
         if (fTasks) {
+            fTasks->hide();
             fTasks->setGeometry(YRect(left[0],
                                       y[0],
-                                      max(0, right[0] - left[0]),
+                                      max(0U, unsigned(right[0] - left[0])),
                                       h[0]));
             fTasks->show();
             fTasks->relayout();
@@ -588,7 +603,7 @@ void TaskBar::updateLayout(unsigned &size_w, unsigned &size_h) {
 
         fAddressBar->setGeometry(YRect(left[row],
                                        y[row] + 2,
-                                       max(0, right[row] - left[row]),
+                                       max(0U, unsigned(right[row] - left[row])),
                                        h[row] - 4));
         fAddressBar->raise();
         if (::showAddressBar) {
@@ -603,8 +618,10 @@ void TaskBar::updateLayout(unsigned &size_w, unsigned &size_h) {
 
 void TaskBar::relayoutNow() {
     if (fUpdates.nonempty()) {
-        for (YFrameWindow* frame : fUpdates) {
-            frame->updateAppStatus();
+        for (int i = fUpdates.getCount(); --i >= 0; ) {
+            if (i < fUpdates.getCount() && fUpdates[i]) {
+                fUpdates[i]->updateAppStatus();
+            }
         }
         fUpdates.clear();
     }
@@ -676,14 +693,14 @@ void TaskBar::updateLocation() {
 
     int by = taskBarAtTop ? dy : dy + dh - 1;
 
-    fEdgeTrigger->setGeometry(YRect(x, by, w, 1));
+    fEdgeTrigger->setGeometry(YRect(x, by, w, 1U));
 
     int y = taskBarAtTop ? dy : dy + dh - h;
 
     if ( !fIsHidden || fIsCollapsed) {
         if (getFrame()) {
             if (geometry() != YRect(x, y, w, h)) {
-                XConfigureRequestEvent conf;
+                XConfigureRequestEvent conf = {};
                 conf.type = ConfigureRequest;
                 conf.window = handle();
                 conf.x = x;
@@ -728,7 +745,7 @@ void TaskBar::updateWinLayer() {
     if (getFrame()) {
         getFrame()->wmSetLayer(layer);
     } else {
-        setWinLayerHint(layer);
+        setLayerHint(layer);
     }
 }
 
@@ -925,7 +942,7 @@ void TaskBar::popOut() {
 
 void TaskBar::showBar() {
     if (getFrame() == nullptr) {
-        manager->manageClient(handle());
+        manager->manageClient(this);
         updateWinLayer();
         if (getFrame()) {
             getFrame()->setAllWorkspaces();

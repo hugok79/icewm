@@ -21,27 +21,25 @@ char const *ApplicationName = nullptr;
 
 class PixFile {
 public:
-    typedef ref<YResourcePaths> Paths;
     typedef ref<YPixmap> Pixmap;
 private:
     mstring name;
     Pixmap pix;
     time_t last, check;
 public:
-    explicit PixFile(mstring file, Pixmap pixmap = null)
-        : name(file), pix(pixmap), last(0L), check(0L)
+    explicit PixFile(mstring file)
+        : name(file), last(0L), check(0L)
     {
     }
     ~PixFile() {
-        name = null;
         pix = null;
     }
     mstring file() const { return name; }
-    Pixmap pixmap(Paths paths) {
+    Pixmap pixmap() {
         time_t now = time(nullptr);
         if (pix == null) {
             if (last == 0 || last + 2 < now) {
-                pix = load(paths);
+                pix = load();
                 last = check = now;
             }
         }
@@ -51,7 +49,7 @@ public:
             struct stat st;
             if (path.stat(&st) == 0) {
                 if (last < st.st_mtime) {
-                    Pixmap tmp = load(paths);
+                    Pixmap tmp = load();
                     if (tmp != null) {
                         pix = tmp;
                         last = now;
@@ -61,11 +59,11 @@ public:
         }
         return pix;
     }
-    Pixmap load(Paths paths) {
+    Pixmap load() {
         Pixmap image;
         upath path(name);
         if (false == path.isAbsolute()) {
-            image = paths->loadPixmap(null, path);
+            image = YResourcePaths::loadPixmapFile(path);
         }
         if (image == null) {
             image = YPixmap::load(path);
@@ -83,10 +81,8 @@ public:
 
 class PixCache {
 public:
-    typedef ref<YResourcePaths> Paths;
     typedef ref<YPixmap> Pixmap;
 private:
-    Paths paths;
     YObjectArray<PixFile> pixes;
     int find(mstring name) {
         for (int i = 0; i < pixes.getCount(); ++i) {
@@ -96,29 +92,21 @@ private:
         }
         return -1;
     }
-    Paths getPaths() {
-        if (paths == null) {
-            paths = YResourcePaths::subdirs(null);
-        }
-        return paths;
-    }
 public:
     ~PixCache() {
         clear();
-        paths = null;
     }
-    void add(mstring file, Pixmap pixmap = null) {
+    void add(mstring file) {
         if (-1 == find(file)) {
-            pixes.append(new PixFile(file, pixmap));
+            pixes.append(new PixFile(file));
         }
     }
     Pixmap get(mstring name) {
         int k = find(name);
-        return k == -1 ? null : pixes[k]->pixmap(getPaths());
+        return k == -1 ? null : pixes[k]->pixmap();
     }
     void clear() {
         pixes.clear();
-        paths = null;
     }
     void unload() {
         for (int k = pixes.getCount(); --k >= 0; ) {
@@ -196,6 +184,8 @@ private:
     Atom atom(const char* name) const;
     static Window window() { return desktop->handle(); }
     upath getThemeDir();
+    bool checkWM();
+    void syncWM();
 
 private:
     char** mainArgv;
@@ -217,18 +207,24 @@ private:
     mstring pixmapName;
     YArray<int> sequence;
     lazy<YTimer> cycleTimer;
+    lazy<YTimer> checkTimer;
 
     Atom _XA_XROOTPMAP_ID;
     Atom _XA_XROOTCOLOR_PIXEL;
     Atom _XA_NET_CURRENT_DESKTOP;
     Atom _XA_NET_DESKTOP_GEOMETRY;
     Atom _XA_NET_NUMBER_OF_DESKTOPS;
+    Atom _XA_NET_SUPPORTING_WM_CHECK;
     Atom _XA_NET_WORKAREA;
+    Atom _XA_NET_WM_NAME;
     Atom _XA_ICEWMBG_QUIT;
     Atom _XA_ICEWMBG_IMAGE;
     Atom _XA_ICEWMBG_SHUFFLE;
     Atom _XA_ICEWMBG_RESTART;
     Atom _XA_ICEWMBG_PID;
+    Atom _XA_ICEWM_WINOPT;
+    Atom _XA_WIN_PROTOCOLS;
+    Atom _XA_UTF8_STRING;
 };
 
 Background::Background(int *argc, char ***argv, bool verb):
@@ -247,11 +243,16 @@ Background::Background(int *argc, char ***argv, bool verb):
     _XA_NET_CURRENT_DESKTOP(atom("_NET_CURRENT_DESKTOP")),
     _XA_NET_DESKTOP_GEOMETRY(atom("_NET_DESKTOP_GEOMETRY")),
     _XA_NET_NUMBER_OF_DESKTOPS(atom("_NET_NUMBER_OF_DESKTOPS")),
+    _XA_NET_SUPPORTING_WM_CHECK(atom("_NET_SUPPORTING_WM_CHECK")),
     _XA_NET_WORKAREA(atom("_NET_WORKAREA")),
+    _XA_NET_WM_NAME(atom("_NET_WM_NAME")),
     _XA_ICEWMBG_QUIT(atom("_ICEWMBG_QUIT")),
     _XA_ICEWMBG_IMAGE(atom("_ICEWMBG_IMAGE")),
     _XA_ICEWMBG_SHUFFLE(atom("_ICEWMBG_SHUFFLE")),
-    _XA_ICEWMBG_RESTART(atom("_ICEWMBG_RESTART"))
+    _XA_ICEWMBG_RESTART(atom("_ICEWMBG_RESTART")),
+    _XA_ICEWM_WINOPT(atom("_ICEWM_WINOPTHINT")),
+    _XA_WIN_PROTOCOLS(atom("_WIN_PROTOCOLS")),
+    _XA_UTF8_STRING(atom("UTF8_STRING"))
 {
     char abuf[42];
     snprintf(abuf, sizeof abuf, "_ICEWMBG_PID_S%d", xapp->screen());
@@ -461,8 +462,14 @@ bool Background::handleTimer(YTimer* timer) {
         cycleOffset += desktopCount;
         cache.unload();
         update(true);
+        return true;
     }
-    return true;
+    else if (timer == checkTimer) {
+        if (checkWM())
+            syncWM();
+        update(true);
+    }
+    return false;
 }
 
 ref<YPixmap> Background::getBackgroundPixmap() {
@@ -790,7 +797,9 @@ bool Background::filterEvent(const XEvent &xev) {
     if (xev.xany.window != window()) {
         /*ignore*/;
     }
-    else if (xev.type == PropertyNotify) {
+    else if (xev.type == PropertyNotify &&
+             xev.xproperty.state == PropertyNewValue)
+    {
         if (xev.xproperty.atom == _XA_NET_CURRENT_DESKTOP) {
             update();
         }
@@ -814,6 +823,9 @@ bool Background::filterEvent(const XEvent &xev) {
             }
             return true;
         }
+        if (xev.xproperty.atom == _XA_NET_SUPPORTING_WM_CHECK) {
+            checkTimer->setTimer(100L, this, true);
+        }
     }
     else if (xev.type == ClientMessage) {
         if (xev.xclient.message_type == _XA_ICEWMBG_QUIT) {
@@ -836,6 +848,27 @@ bool Background::filterEvent(const XEvent &xev) {
     return YXApplication::filterEvent(xev);
 }
 
+bool Background::checkWM() {
+    YProperty wchk(window(), _XA_NET_SUPPORTING_WM_CHECK, F32, 1L, XA_WINDOW);
+    if (wchk) {
+        YProperty name(*wchk, _XA_NET_WM_NAME, F8, 5L, _XA_UTF8_STRING);
+        return name && strncmp(name.string(), "IceWM", 5) == 0;
+    }
+    return false;
+}
+
+void Background::syncWM() {
+    YProperty wopt(window(), _XA_ICEWM_WINOPT, F8, 99L, _XA_ICEWM_WINOPT);
+    if (wopt == false) {
+        wopt.append("\0\0\0", 3);
+        sync();
+    }
+    for (int i = 0; ++i < 10 && wopt; ++i) {
+        usleep(i * 1000);
+        wopt.update();
+    }
+}
+
 void Background::sendClientMessage(Atom message) const {
     XClientMessageEvent xev = {};
     xev.type = ClientMessage;
@@ -843,9 +876,8 @@ void Background::sendClientMessage(Atom message) const {
     xev.message_type = message;
     xev.format = 32;
     xev.data.l[0] = getpid();
-    XSendEvent(display(), window(), False,
-               StructureNotifyMask, (XEvent *) &xev);
-    XSync(display(), False);
+    send(xev, window(), StructureNotifyMask);
+    sync();
 }
 
 bool Background::become(bool replace) {
@@ -869,7 +901,7 @@ bool Background::become(bool replace) {
     }
     if (pid <= 0) {
         changeLongProperty(_XA_ICEWMBG_PID, (unsigned char *) &mypid);
-        XSync(display(), False);
+        sync();
         pid = (int) mypid;
     }
 

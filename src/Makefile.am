@@ -21,6 +21,7 @@ EXTRA_PROGRAMS = \
 	testmap \
 	testmenus \
 	testnetwmhints \
+	testpointer \
 	testwinhints \
 	iceview \
 	icesame \
@@ -53,6 +54,7 @@ noinst_PROGRAMS += \
 	testmap \
 	testmenus \
 	testnetwmhints \
+	testpointer \
 	testwinhints \
 	iceview \
 	icesame \
@@ -92,6 +94,7 @@ libice_la_SOURCES = \
 	misc.cc \
 	mstring.cc \
 	mstring.h \
+	objmenu.cc \
 	objmenu.h \
 	prefs.h \
 	ref.cc \
@@ -194,6 +197,8 @@ libitk_la_SOURCES = \
 	wmconfig.h \
 	wmmgr.h \
 	wmoption.h \
+	wmsave.cc \
+	wmsave.h \
 	wmtaskbar.h \
 	workspaces.h \
 	wpixmaps.h \
@@ -211,7 +216,7 @@ libitk_la_SOURCES = \
 	yicon.cc \
 	yicon.h \
 	yimage.h \
-	yinput.cc \
+	yinputline.cc \
 	yinputline.h \
 	ykey.h \
 	ylabel.cc \
@@ -276,6 +281,7 @@ icewm_SOURCES = \
 	yactionbutton.h \
 	objmenu.h \
 	objbutton.h \
+	objbutton.cc \
 	WinMgr.h \
 	ypoll.h \
 	ylib.h \
@@ -311,6 +317,8 @@ icewm_SOURCES = \
 	wmclient.cc \
 	MwmUtil.h \
 	wmclient.h \
+	wmdock.cc \
+	wmdock.h \
 	wmmgr.cc \
 	wmmgr.h \
 	workspaces.h \
@@ -336,6 +344,8 @@ icewm_SOURCES = \
 	wmmenu.cc \
 	wmprog.cc \
 	wmprog.h \
+	wmpref.cc \
+	wmpref.h \
 	atasks.cc \
 	atasks.h \
 	aworkspaces.cc \
@@ -633,18 +643,22 @@ testlocale_LDADD = libice.la $(CORE_LIBS) @LIBINTL@
 
 testarray_SOURCES = \
 	intl.h \
-	debug.h \
-	sysdep.h \
+	mstring.h \
+	yarray.h \
 	base.h \
-	ylib.h \
+	ypointer.h \
 	testarray.cc
 testarray_LDADD = libice.la @LIBINTL@
+
+testpointer_SOURCES = \
+	ypointer.h \
+	testpointer.cc
 
 nodist_pkgdata_DATA = \
 	preferences
 
 preferences: genpref$(EXEEXT)
-	$(AM_V_GEN)./genpref$(EXEEXT) >$@
+	$(AM_V_GEN)./genpref$(EXEEXT) -o $@ -s
 
 CLEANFILES = preferences
 

@@ -436,8 +436,8 @@ void WindowList::setupClient() {
 
     setWinHintsHint(WinHintsSkipTaskBar |
                     WinHintsSkipWindowMenu);
-    setWinWorkspaceHint(AllWorkspaces);
-    setWinLayerHint(WinLayerAboveDock);
+    setWorkspaceHint(AllWorkspaces);
+    setLayerHint(WinLayerAboveDock);
 }
 
 WindowList::~WindowList() {
@@ -543,9 +543,19 @@ void WindowList::showFocused(int x, int y) {
         int x = int((dw - w) / 2);
         int y = int((dh - h) / 2);
         setGeometry(YRect(x, y, w, h));
-        manager->manageClient(handle(), false);
+        manager->manageClient(this);
     }
-    if (getFrame() != nullptr) {
+    if (getFrame()) {
+        if (x == -1 && y == -1) {
+            int ix, iy, iw, ih;
+            getFrame()->getNormalGeometryInner(&ix, &iy, &iw, &ih);
+            YRect f(ix, iy, iw, ih);
+            YRect r(desktop->getScreenGeometry(getFrame()->getScreen()));
+            if (r.overlap(f) * 4 < f.pixels()) {
+                x = r.xx + r.ww / 2;
+                y = r.yy + r.hh / 2;
+            }
+        }
         if (x != -1 && y != -1) {
             int px, py;
 

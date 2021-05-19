@@ -40,15 +40,13 @@ void YMenu::setActionListener(YActionListener *actionListener) {
     fActionListener = actionListener;
 }
 
-void YMenu::finishPopup(YMenuItem *item, YAction action,
-                        unsigned int modifiers)
-{
+void YMenu::finishPopup(YMenuItem *item, YAction action, unsigned modifiers) {
     YActionListener *cmd = fActionListener;
 
     YPopupWindow::finishPopup();
 
-    if (item)
-        item->actionPerformed(cmd, action, modifiers);
+    if (cmd)
+        cmd->actionPerformed(action, modifiers);
 }
 
 lazy<YTimer> YMenu::fMenuTimer;
@@ -213,15 +211,15 @@ void YMenu::activateSubMenu(int item, bool byMouse) {
             getOffsets(l, t, r, b);
             findItemPos(item, xp, yp, ih);
             YRect rect(x(), y(), width(), height());
-            if (sub->getActionListener() == nullptr)
-                sub->setActionListener(getActionListener());
+            if (sub->fActionListener == nullptr)
+                sub->setActionListener(fActionListener);
             sub->popup(nullptr, this, nullptr,
                        x() + int(width()) - r, y() + yp - t,
                        int(width()) - r - l, -1,
                        getXiScreen(),
-                       YPopupWindow::pfCanFlipHorizontal |
-                       (popupFlags() & YPopupWindow::pfFlipHorizontal) |
-                       (byMouse ? (unsigned int)YPopupWindow::pfButtonDown : 0U));
+                       pfCanFlipHorizontal |
+                       (popupFlags() & pfFlipHorizontal) |
+                       (byMouse ? pfButtonDown : 0));
             fPopup = sub;
             submenuItem = item;
         }
@@ -656,12 +654,25 @@ YMenuItem *YMenu::addSubmenu(const mstring &name, int hotCharPos, YMenu *submenu
     return add(new YMenuItem(name, hotCharPos, null, actionNull, submenu));
 }
 
-YMenuItem * YMenu::addSeparator() {
-    return add(new YMenuItem());
+void YMenu::addSeparator() {
+    int n = itemCount();
+    if (n > 0 && !fItems[n - 1]->isSeparator()) {
+        void(add(new YMenuItem()));
+    }
 }
 
 YMenuItem *YMenu::addLabel(const mstring &name) {
     return add(new YMenuItem(name));
+}
+
+bool YMenu::lastIsSeparator() const {
+    int n = itemCount();
+    return n > 0 && fItems[n - 1]->isSeparator();
+}
+
+YMenuItem* YMenu::lastItem() const {
+    int n = itemCount();
+    return n > 0 ? fItems[n - 1] : nullptr;
 }
 
 void YMenu::removeAll() {

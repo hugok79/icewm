@@ -1,5 +1,5 @@
-#ifndef __YSCROLLBAR_H
-#define __YSCROLLBAR_H
+#ifndef YSCROLLBAR_H
+#define YSCROLLBAR_H
 
 #include "ywindow.h"
 #include "ytimer.h"
@@ -22,11 +22,7 @@ public:
         Vertical, Horizontal
     };
 
-    YScrollBar(YWindow *aParent);
     YScrollBar(Orientation anOrientation, YWindow *aParent);
-    YScrollBar(Orientation anOrientation,
-               int aValue, int aVisibleAmount, int aMin, int aMax,
-               YWindow *aParent);
     virtual ~YScrollBar();
 
     Orientation getOrientation() const { return fOrientation; }
@@ -37,6 +33,7 @@ public:
     int getBlockIncrement() const { return fBlockIncrement; }
     int getValue() const { return fValue; }
 
+    void enable();
     void setOrientation(Orientation anOrientation);
     void setMaximum(int aMaximum);
     void setMinimum(int aMinimum);
@@ -72,6 +69,8 @@ public:
     virtual void handleDNDLeave();
     virtual void handleDNDPosition(int x, int y);
     void setScrollBarListener(YScrollBarListener *notify) { fListener = notify; }
+    static void reverseVideo();
+
 private:
     enum ScrollOp {
         goUp, goDown, goPageUp, goPageDown, goPosition, goNone

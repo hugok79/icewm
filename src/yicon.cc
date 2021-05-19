@@ -148,7 +148,7 @@ public:
         };
 
         auto probeAndRegisterXdgFolders = [this, &add](
-                const mstring& iconPathToken, bool fromResources) -> unsigned {
+                mstring iconPathToken, bool fromResources) -> unsigned {
 
             // stop early because this is obviously matching a file!
             if (hasImageExtension(upath(iconPathToken)))
@@ -188,8 +188,8 @@ public:
 #ifdef CONFIG_LIBRSVG
             auto& scaleCat = pools[fromResources].getCat(SCALABLE);
             for (auto& contentDir : subcats) {
-                ret += gotcha(mstring(iconPathToken) + "/scalable" + contentDir,
-                        scaleCat);
+                ret += gotcha(mstring(iconPathToken, "/scalable", contentDir),
+                              scaleCat);
             }
 #endif
 
@@ -202,14 +202,13 @@ public:
 
                 for (auto& contentDir : subcats) {
                     for (auto& testDir : {
-                        // XXX: optimize concatenation with MStringBuilder
-                        mstring(iconPathToken) + "/" + szSize + "x" + szSize
-                        + contentDir,
-                        mstring(iconPathToken) + "/base/"
-                        + szSize + "x" + szSize + contentDir,
+                        mstring(iconPathToken, "/", szSize,
+                                "x", szSize, contentDir),
+                        mstring(iconPathToken, "/base/", szSize,
+                                "x", szSize, contentDir),
                         // some old themes contain just one dimension
                         // and a different naming convention
-                        mstring(iconPathToken) + contentDir + "/" + szSize
+                        mstring(iconPathToken, contentDir, "/", szSize)
                     }) {
                         ret += gotcha(testDir, kv);
                     }
@@ -300,24 +299,18 @@ public:
 
         // first scan the private resource folders
         auto iceIconPaths = YResourcePaths::subdirs("icons");
-        if (iceIconPaths != null) {
-            // this returned icewm directories containing "icons" folder
-            for (int i = 0; i < iceIconPaths->getCount(); ++i) {
-                auto fn(iceIconPaths->getPath(i).name());
-                if (fn.nonempty()) {
-                    for (auto &blistPattern : skiplist)
-                        if (0 == fnmatch(blistPattern, fn.c_str(), 0))
-                            goto NEXT_FROM_ICON_RES_DIR;
-                }
-                probeIconFolder(iceIconPaths->getPath(i) + "/icons", true);
-                NEXT_FROM_ICON_RES_DIR: ;
-            }
+        // this returned icewm directories containing "icons" folder
+        for (upath& path : *iceIconPaths) {
+            for (auto& blistPattern : skiplist)
+                if (0 == fnmatch(blistPattern, path.string(), 0))
+                    goto NEXT_FROM_ICON_RES_DIR;
+            probeIconFolder(path + "/icons", true);
+            NEXT_FROM_ICON_RES_DIR: ;
         }
         // now test the system icons folders specified by user or defaults
         csmart copy(newstr(iconPath));
-        for (auto *itok = strtok_r(copy, ":", &save); itok;
+        for (char* itok = strtok_r(copy, ":", &save); itok;
                 itok = strtok_r(0, ":", &save)) {
-
             probeIconFolder(itok, false);
         }
     }
@@ -337,8 +330,8 @@ public:
                 bool addSizeSfx) {
             // XXX: optimize string concatenation? Or go back to plain printf?
             if (addSizeSfx) {
-                basePath += "_";
-                basePath += mstring(long(size)) + "x" + mstring(long(size));
+                mstring szSize(size);
+                basePath = mstring(basePath, "_", szSize, "x", szSize);
             }
             for (auto& imgExt : iconExts) {
                 if (checkFile(basePath + imgExt))
