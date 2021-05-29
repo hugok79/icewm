@@ -1006,6 +1006,10 @@ void YWindowManager::setFocus(YFrameWindow *f, bool canWarp, bool reorder) {
         XSetInputFocus(xapp->display(), fTopWin->handle(), RevertToNone,
                        xapp->getEventTime("setFocus"));
         notifyActive(nullptr);
+        xapp->sync();
+        XEvent ignored;
+        while (XCheckWindowEvent(xapp->display(), xapp->root(),
+                                 FocusChangeMask, &ignored)) { }
     }
 
     if (c &&
@@ -1600,6 +1604,11 @@ void YWindowManager::manageClient(YFrameClient* client, bool mapClient) {
     frame->doManage(client, doActivate, requestFocus);
     MSG(("initial geometry 3 (%d:%d %dx%d)",
          client->x(), client->y(), client->width(), client->height()));
+    if (frame->client() == nullptr) {
+        client->setFrame(nullptr);
+        delete frame;
+        return;
+    }
 
     placeWindow(frame, cx, cy, cw, ch, isRunning(), doActivate);
 
@@ -1729,7 +1738,7 @@ void YWindowManager::unmanageClient(YFrameClient* client) {
         frame->unmanage();
         delete frame;
     }
-    else if (client->isDocked() && fDockApp) {
+    if (client->isDocked() && fDockApp) {
         fDockApp->undock(client);
     }
     delete client;
@@ -2007,17 +2016,15 @@ void YWindowManager::restackWindows() {
     else if (statusWorkspace && statusWorkspace->visible())
         w.append(statusWorkspace->handle());
 
-    if (fDockApp && fDockApp->above())
-        w.append(fDockApp->handle());
-
     int top = w.getCount();
-
-    for (YFrameWindow* f = topLayer(); f; f = f->nextLayer()) {
-        w.append(f->handle());
+    int dockAppLayer = fDockApp && fDockApp->created()
+                     ? fDockApp->layer() : WinLayerInvalid;
+    for (int layer = WinLayerCount - 1; layer >= 0; --layer) {
+        if (layer == dockAppLayer)
+            w.append(fDockApp->handle());
+        for (YFrameWindow* f = fLayers[layer].front(); f; f = f->next())
+            w.append(f->handle());
     }
-
-    if (fDockApp && fDockApp->below())
-        w.append(fDockApp->handle());
 
     if (quickSwitchRaiseCandidate && switchWindowVisible()) {
         YFrameWindow* active = fSwitchWindow->current();
@@ -2404,15 +2411,15 @@ void YWindowManager::resizeWindows() {
 }
 
 void YWindowManager::workAreaUpdated() {
-    if (wmState() == wmRUNNING && (taskBar || !showTaskBar)) {
+    if (isRunning() && (taskBar || !showTaskBar)) {
         for (YFrameIter frame = fCreationOrder.iterator(); ++frame; ) {
             if (frame->isIconic()) {
                 frame->getMiniIcon()->show();
             }
         }
-    }
-    if (fDockApp) {
-        fDockApp->adapt();
+        if (fDockApp && fDockApp->visible()) {
+            fDockApp->adapt();
+        }
     }
 }
 
