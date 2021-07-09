@@ -2018,8 +2018,8 @@ public:
         FontTable::reset();
     }
 
-    void activateURL(mstring url, bool relative = false);
-    void openBrowser(mstring url);
+    void activateURL(mstring url, bool relative = false) override;
+    void openBrowser(mstring url) override;
 
     void configure(const YRect2& r) override {
         if (r.resized()) {
@@ -2035,7 +2035,7 @@ public:
     void handleExpose(const XExposeEvent& expose) override {
     }
 
-    bool isFocusTraversable() {
+    bool isFocusTraversable() override {
         return true;
     }
 
@@ -2046,7 +2046,7 @@ private:
     void run(const char* path, const char* arg1 = nullptr,
              const char* arg2 = nullptr, const char* arg3 = nullptr);
 
-    bool handleKey(const XKeyEvent &key) {
+    bool handleKey(const XKeyEvent &key) override {
         return view->handleKey(key);
     }
 
@@ -2076,24 +2076,39 @@ FileView::FileView(YApplication *iapp, int argc, char **argv)
     setSize(ViewerWidth, ViewerHeight);
 
     ref<YIcon> file_icon = YIcon::getIcon("file");
-    small_icon = YPixmap::createFromImage(file_icon->small(), xapp->depth());
-    large_icon = YPixmap::createFromImage(file_icon->large(), xapp->depth());
-
-    Pixmap icons[4] = {
-        small_icon->pixmap(), small_icon->mask(),
-        large_icon->pixmap(), large_icon->mask()
-    };
-
-    extern Atom _XA_WIN_ICONS;
-    setProperty(_XA_WIN_ICONS, XA_PIXMAP, icons, 4);
+    if (file_icon != null) {
+        Pixmap icons[4];
+        int count = 0;
+        if (file_icon->small() != null) {
+            small_icon = YPixmap::createFromImage(file_icon->small(), xapp->depth());
+            if (small_icon != null) {
+                icons[count++] = small_icon->pixmap();
+                icons[count++] = small_icon->mask();
+            }
+        }
+        if (file_icon->large() != null) {
+            large_icon = YPixmap::createFromImage(file_icon->large(), xapp->depth());
+            if (large_icon != null) {
+                icons[count++] = large_icon->pixmap();
+                icons[count++] = large_icon->mask();
+            }
+        }
+        if (count > 0) {
+            extern Atom _XA_WIN_ICONS;
+            setProperty(_XA_WIN_ICONS, XA_PIXMAP, icons, count);
+        }
+    }
     setNetPid();
 
     XWMHints wmhints = {};
-    wmhints.flags = InputHint | StateHint | IconPixmapHint | IconMaskHint;
+    wmhints.flags = InputHint | StateHint;
     wmhints.input = True;
     wmhints.initial_state = NormalState;
-    wmhints.icon_pixmap = large_icon->pixmap();
-    wmhints.icon_mask = large_icon->mask();
+    if (large_icon != null) {
+        wmhints.icon_pixmap = large_icon->pixmap();
+        wmhints.icon_mask = large_icon->mask();
+        wmhints.flags |= IconPixmapHint | IconMaskHint;
+    }
     XSetWMHints(xapp->display(), handle(), &wmhints);
 
     YTextProperty name("icehelp");
